@@ -50,6 +50,10 @@ def build(d):
     w(d / "safe_api.py", "import requests\n\n\ndef pull(token):\n"
                          "    return requests.get('https://api.example.com/v1/items', headers={'Authorization': token}, timeout=10)\n")
     w(d / "names.py", "def describe(cat):\n    return 'the cat is ' + cat\n")
+    # a page using an installed package and an inline script that sets .src from a variable (both fine)
+    w(d / "package.json", json.dumps({"name": "demo", "private": True, "dependencies": {"@fontsource/press-start-2p": "5.0.0"}}))
+    w(d / "web/player.html", '<!doctype html><html><head><link rel="stylesheet" href="../node_modules/@fontsource/press-start-2p/index.css">'
+                             '</head><body><p>Player</p><script>const a = new Audio(); a.src = songs[i].blob; a.src = track.url;</script></body></html>')
 
 
 # (what, file, tools that may report it, words one of which must appear in the message)
@@ -70,7 +74,7 @@ PLANTED = [
     ("request without timeout", "api.py", {"net", "advisor"}, ["timeout"]),
     ("constant list used for lookups", "rules.py", {"advisor"}, ["set"]),
 ]
-DECOYS = ["docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py"]
+DECOYS = ["docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
 IGNORE_KINDS_ON_DECOYS = {"unused-file"}          # "nothing links to this file" ideas are true for a practice project
 
 

@@ -29,6 +29,39 @@ TEMPLATE = re.compile(r"\{\{|\{%|<%|<\?|\$\{|\[\[|#\{|%\{|\{\$")
 HAS_EXT = re.compile(r"\.[A-Za-z0-9]{1,6}$")
 NAME_BEFORE = re.compile(r"""\b(src|href|poster|data-src|data-poster|data-bg|xlink:href)\s*=\s*['"]?$""", re.I)
 SKIP_SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.\-]*:|//|#)", re.I)
+NOT_A_PATH = re.compile(r"[\[\](){}`+;,\s]")      # songs[i].blob, url(x), a + b ... are code, not file names
+SCRIPT_BLOCK = re.compile(r"<script\b[^>]*>(.*?)</script\s*>", re.I | re.S)
+
+
+def script_ranges(text):
+    return [(m.start(1), m.end(1)) for m in SCRIPT_BLOCK.finditer(text)]
+
+
+def in_ranges(pos, ranges):
+    return any(a <= pos < b for a, b in ranges)
+
+
+def declared_packages(root):
+    """Package names the project installs (package.json) - files inside node_modules/<package>/ come from there."""
+    names = set()
+    try:
+        pj = json.loads((Path(root) / "package.json").read_text(encoding="utf-8-sig"))
+        for k in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            names.update((pj.get(k) or {}).keys())
+    except (OSError, ValueError, AttributeError):
+        pass
+    return names
+
+
+def package_of(path):
+    """'node_modules/@fontsource/press-start-2p/index.css' -> '@fontsource/press-start-2p'"""
+    i = path.find("node_modules/")
+    if i < 0:
+        return None
+    parts = path[i + len("node_modules/"):].split("/")
+    if not parts or not parts[0]:
+        return None
+    return "/".join(parts[:2]) if parts[0].startswith("@") and len(parts) > 1 else parts[0]
 
 
 def tag_before(text, pos):
@@ -46,6 +79,7 @@ def check(root):
     for rel in files:
         by_name.setdefault(posixpath.basename(rel).lower(), []).append(rel)
     exists = lambda p: p in files
+    packages = declared_packages(root)
     out = []
     pages = 0
     for rel, size in files.items():
@@ -57,23 +91,32 @@ def check(root):
         except (UnicodeDecodeError, OSError):
             continue
         pages += 1
+        scripts = script_ranges(text) if ext in ("html", "htm") else []
         for r in dedupe.find_refs(rel, text):
             raw, _s = dedupe.split_suffix(r.raw)
             if r.kind not in ("attr", "url", "srcset") or not raw or SKIP_SCHEME.match(raw) or TEMPLATE.search(raw):
                 continue
-            if not HAS_EXT.search(raw):
+            if not HAS_EXT.search(raw) or NOT_A_PATH.search(raw):
                 continue
             if r.kind == "attr":
                 if not NAME_BEFORE.search(text[max(0, r.start - 24):r.start]):
+                    continue
+                # inside a <script>: "audio.src = track.url" is code; only a quoted text ('img/a.png') can be a file name
+                if in_ranges(r.start, scripts) and text[r.start - 1:r.start] not in ("'", '"'):
                     continue
                 if tag_before(text, r.start) in ("a", "area", "form", "meta", "base"):
                     continue                               # links to other pages may be served by routes
             if dedupe.resolve(project, r, exists):
                 continue
+            pkg = package_of(raw.replace("\\", "/"))
+            if pkg and pkg in packages:
+                continue                                   # comes from an installed package (npm install) - not missing
             line = text.count("\n", 0, r.start) + 1
             name = posixpath.basename(raw).lower()
             elsewhere = [p for p in by_name.get(name, []) if p != rel][:2]
-            if raw.startswith("/") and not elsewhere:
+            if pkg and pkg not in packages:
+                sev, note = "critical", "the file is not there, and the package %s is not listed in package.json" % pkg
+            elif raw.startswith("/") and not elsewhere:
                 sev, note = "warning", "starts with / and matches nothing in the project (it may be created when the site is built)"
             else:
                 sev, note = "critical", "the file is not there"
