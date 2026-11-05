@@ -1,0 +1,290 @@
+# =====================================================================================================================
+#  ARACHNID - automatic checks on GitHub
+#  Copy this file into your project as:   .github/workflows/arachnid.yml
+#
+#  What happens, in plain words
+#  Who hears about what (see routing.py / arachnid.config.json):
+#    alarm    -> the owners from CODEOWNERS + the person who made the change (+ "always" receivers, e.g. security)
+#    decision -> the person who made the change.        handled / ideas -> nobody is pinged, they are only listed.
+#    On GitHub: their @names are written in the comment / issue, so GitHub notifies them (app + their work e-mail).
+#    By e-mail: each team's group address gets ONE e-mail with only its own findings (needs the ARACHNID_SMTP_* secrets).
+#
+#    1. Someone opens (or updates) a pull request into main
+#         -> Arachnid checks the change BEFORE it enters main and writes one comment on the pull request.
+#            Critical problem (alarm)  -> the check turns red, so the merge button warns everyone.
+#            Small problems            -> listed in the comment, the check stays green.
+#    2. Something is pushed into main (a merge, or a direct push)
+#         -> Arachnid checks main again (backup guard). An alarm turns the run red and GitHub e-mails the person who pushed.
+#         -> It then tries the SAFE automatic fixes. Each one must pass the safety gate. If any pass, they are put on the
+#            branch "arachnid/auto-fixes" and offered as a pull request. A person reviews and merges it - or not.
+#
+#  What it never does
+#    * never pushes to main, never merges anything, never approves anything
+#    * never stores passwords: it only uses the temporary key GitHub gives every run (GITHUB_TOKEN)
+#    * never sends your code anywhere - reports contain only file names, line numbers and short descriptions
+#
+#  One-time settings in your repository (Settings -> Actions -> General -> Workflow permissions):
+#    tick "Allow GitHub Actions to create and approve pull requests"  (needed only for the fix pull requests in step 2)
+#  Optional secrets (Settings -> Secrets and variables -> Actions) - Arachnid itself never stores any of them:
+#    ARACHNID_SMTP_HOST, ARACHNID_SMTP_PORT, ARACHNID_SMTP_USER, ARACHNID_SMTP_PASSWORD, ARACHNID_MAIL_FROM
+#        = the firm's mail server and the mailbox Arachnid sends from (e.g. smtp.office365.com, 587)
+#    ARACHNID_WEBHOOK = a Slack/Discord/Teams webhook to receive alarms there.
+#  Optional files in your project: .github/CODEOWNERS (who owns which folder) and arachnid.config.json (team e-mail addresses).
+#  Your main branch is called "master"?  Change the two "main" lines under "on:" below.
+# =====================================================================================================================
+name: Arachnid
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:            # also lets you start it by hand from the Actions tab
+
+concurrency:                    # one Arachnid run per branch at a time; a newer push cancels the older run
+  group: arachnid-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARACHNID_REPO: YOUR-GITHUB-NAME/arachnid   # where to download Arachnid from, used only if it is not inside this repository
+  ARACHNID_REF: main
+  PYTHONUTF8: "1"
+  ARACHNID_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  ARACHNID_WEBHOOK: ${{ secrets.ARACHNID_WEBHOOK }}
+  ARACHNID_AUTHOR: ${{ github.event.pull_request.user.login }}   # in a pull request: the person who contributed the change
+
+jobs:
+  # ----------------------------------------------------------------------------------------------------------------
+  check:
+    name: Arachnid check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write                   # only to open / update / close the "Arachnid alarm" issue for main
+    steps:
+      - name: Get the project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0              # full history, so Arachnid can see who changed each line ("git blame")
+
+      - name: Get Arachnid
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f arachnid/arachnid.py ]; then
+            cp -r arachnid "$RUNNER_TEMP/arachnid"
+          else
+            git clone --depth 1 --branch "$ARACHNID_REF" "https://github.com/$ARACHNID_REPO.git" "$RUNNER_TEMP/arachnid"
+          fi
+          rm -rf "$RUNNER_TEMP/arachnid/reports" "$RUNNER_TEMP/arachnid/backups"     # start from a clean notebook
+          mkdir -p "$RUNNER_TEMP/arachnid/reports"
+          echo "ARACHNID=$RUNNER_TEMP/arachnid" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install helpers
+        run: python -m pip install --quiet pillow
+
+      - name: Scan (reads only - changes nothing)
+        id: scan
+        shell: bash
+        run: |
+          set +e
+          # live trail: records which file each check reads (names only), so the dashboard can replay the spider's walk
+          PYTHONPATH="$ARACHNID/live" ARACHNID_EVENTS="$ARACHNID/reports/live-events.jsonl" ARACHNID_LIVE_ROOT="$PWD" \
+            python "$ARACHNID/arachnid.py" scan . > "$RUNNER_TEMP/arachnid-scan.log" 2>&1
+          code=$?
+          set -e
+          tail -n 80 "$RUNNER_TEMP/arachnid-scan.log"
+          python "$ARACHNID/ci_summary.py" --mode scan --out "$RUNNER_TEMP/arachnid-summary.md"
+          cat "$RUNNER_TEMP/arachnid-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Remember what people were already told
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          : > "$RUNNER_TEMP/arachnid-previous.md"
+          if [ -n "$PR" ]; then
+            gh pr view "$PR" --json comments --jq '[.comments[] | select(.body | contains("arachnid-report"))] | last | .body // ""' > "$RUNNER_TEMP/arachnid-previous.md" || true
+          else
+            open="$(gh issue list --label arachnid-alarm --state open --json number --jq '.[0].number // empty' || true)"
+            if [ -n "$open" ]; then gh issue view "$open" --json body --jq .body > "$RUNNER_TEMP/arachnid-previous.md" || true; fi
+          fi
+
+      - name: Comment on the pull request
+        if: github.event_name == 'pull_request'
+        continue-on-error: true           # pull requests from forks get a read-only key; the run summary still has everything
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR" --body-file "$RUNNER_TEMP/arachnid-summary.md" --edit-last --create-if-none \
+            || gh pr comment "$PR" --body-file "$RUNNER_TEMP/arachnid-summary.md"
+
+      - name: Tell the right people on GitHub (alarm issue for main)
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          code="${{ steps.scan.outputs.code }}"
+          open="$(gh issue list --label arachnid-alarm --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+          if [ "$code" = "2" ]; then
+            python "$ARACHNID/ci_summary.py" --mode issue --out "$RUNNER_TEMP/arachnid-issue.md"
+            new_ids="$(grep -o 'arachnid-ids: [0-9a-f,]*' "$RUNNER_TEMP/arachnid-issue.md" || true)"
+            if [ -z "$open" ]; then
+              gh label create arachnid-alarm --color B60205 --description "Critical problem found by Arachnid" --force >/dev/null 2>&1 || true
+              gh issue create --title "Arachnid alarm in ${GITHUB_REF_NAME}" --label arachnid-alarm --body-file "$RUNNER_TEMP/arachnid-issue.md"
+            else
+              old_ids="$(grep -o 'arachnid-ids: [0-9a-f,]*' "$RUNNER_TEMP/arachnid-previous.md" || true)"
+              gh issue edit "$open" --body-file "$RUNNER_TEMP/arachnid-issue.md"
+              if [ "$old_ids" != "$new_ids" ]; then    # the alarms changed: a new comment pings the people named in it
+                gh issue comment "$open" --body-file "$RUNNER_TEMP/arachnid-issue.md"
+              fi
+            fi
+          elif [ -n "$open" ] && [ "$code" = "0" ]; then
+            gh issue close "$open" --comment "Arachnid found no alarms at commit ${GITHUB_SHA::7}. Closing."
+          fi
+
+      - name: Send e-mails (each team gets only its own alarms)
+        continue-on-error: true
+        shell: bash
+        env:
+          ARACHNID_SMTP_HOST: ${{ secrets.ARACHNID_SMTP_HOST }}
+          ARACHNID_SMTP_PORT: ${{ secrets.ARACHNID_SMTP_PORT }}
+          ARACHNID_SMTP_USER: ${{ secrets.ARACHNID_SMTP_USER }}
+          ARACHNID_SMTP_PASSWORD: ${{ secrets.ARACHNID_SMTP_PASSWORD }}
+          ARACHNID_MAIL_FROM: ${{ secrets.ARACHNID_MAIL_FROM }}
+        run: |   # only NEW alarms / decisions are e-mailed; without ARACHNID_SMTP_HOST the e-mails are only saved into the reports
+          python "$ARACHNID/notify.py" email . --already "$RUNNER_TEMP/arachnid-previous.md"
+
+      - name: Keep the full reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arachnid-reports
+          path: |
+            ${{ runner.temp }}/arachnid/reports
+            ${{ runner.temp }}/arachnid-scan.log
+          retention-days: 14
+
+      - name: Alarm?
+        shell: bash
+        run: |
+          code="${{ steps.scan.outputs.code }}"
+          blocking="${{ steps.scan.outputs.blocking }}"
+          if [ "$code" = "2" ] && [ "${blocking:-1}" = "0" ]; then
+            echo "::warning title=Arachnid::Alarms exist in main, but none in the files this pull request changes - not blocking."
+            exit 0
+          fi
+          if [ "$code" = "2" ]; then
+            echo "::error title=Arachnid alarm::Arachnid found a critical problem - see the summary / pull request comment."
+            exit 1
+          elif [ "$code" != "0" ]; then
+            echo "::error title=Arachnid could not finish::Arachnid stopped with code $code - see arachnid-scan.log in the reports."
+            exit 1
+          fi
+          echo "No alarms."
+
+  # ----------------------------------------------------------------------------------------------------------------
+  suggest-fixes:
+    name: Arachnid safe fixes (as a pull request)
+    needs: check
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write                 # only to push the branch arachnid/auto-fixes - main is never written
+      pull-requests: write
+    steps:
+      - name: Get the project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Arachnid
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f arachnid/arachnid.py ]; then
+            cp -r arachnid "$RUNNER_TEMP/arachnid"
+          else
+            git clone --depth 1 --branch "$ARACHNID_REF" "https://github.com/$ARACHNID_REPO.git" "$RUNNER_TEMP/arachnid"
+          fi
+          rm -rf "$RUNNER_TEMP/arachnid/reports" "$RUNNER_TEMP/arachnid/backups"
+          mkdir -p "$RUNNER_TEMP/arachnid/reports"
+          echo "ARACHNID=$RUNNER_TEMP/arachnid" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: "20"
+
+      - name: Install the safety gate (a real browser) and the project's own pieces
+        shell: bash
+        run: |
+          python -m pip install --quiet playwright pillow pytest
+          python -m playwright install --with-deps chromium
+          if [ -f requirements.txt ]; then python -m pip install --quiet -r requirements.txt || echo "could not install requirements.txt"; fi
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts --no-audit --no-fund || echo "could not install npm packages"; fi
+
+      - name: Fix what is provably safe
+        shell: bash
+        run: |
+          set +e
+          python "$ARACHNID/arachnid.py" fix . > "$RUNNER_TEMP/arachnid-fix.log" 2>&1
+          set -e
+          tail -n 80 "$RUNNER_TEMP/arachnid-fix.log"
+
+      - name: Offer the fixes as a pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXCL=(':(exclude)arachnid' ':(exclude)node_modules' ':(exclude)**/node_modules/**' ':(exclude)**/__pycache__/**' ':(exclude)**/.pytest_cache/**')
+          if [ -z "$(git status --porcelain -- . "${EXCL[@]}")" ]; then
+            echo "Nothing was changed - no pull request needed."
+            exit 0
+          fi
+          python "$ARACHNID/ci_summary.py" --mode fix --out "$RUNNER_TEMP/arachnid-fix.md"
+          printf '\n> This branch is rewritten by Arachnid on every push to main. Please do not add your own commits to it.\n' >> "$RUNNER_TEMP/arachnid-fix.md"
+          git config user.name "arachnid[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C arachnid/auto-fixes
+          git add -A -- . "${EXCL[@]}"
+          git commit -q -m "Arachnid: safe automatic fixes for ${GITHUB_SHA::7}"
+          git push --force origin arachnid/auto-fixes
+          existing="$(gh pr list --head arachnid/auto-fixes --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file "$RUNNER_TEMP/arachnid-fix.md"
+            echo "Updated pull request #$existing"
+          else
+            gh pr create --base main --head arachnid/auto-fixes --title "Arachnid: safe automatic fixes" --body-file "$RUNNER_TEMP/arachnid-fix.md" \
+              || { echo "::warning::Could not open the pull request. Turn on: Settings -> Actions -> General -> 'Allow GitHub Actions to create and approve pull requests'."; exit 0; }
+          fi
+
+      - name: Keep the full reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arachnid-fix-reports
+          path: |
+            ${{ runner.temp }}/arachnid/reports
+            ${{ runner.temp }}/arachnid-fix.log
+          retention-days: 14

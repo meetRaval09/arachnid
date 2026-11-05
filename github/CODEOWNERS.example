@@ -1,0 +1,6 @@
+# Who owns which part of the code. Put this file at .github/CODEOWNERS in your project.
+# The LAST line that matches a file wins (GitHub's rule). Owners are GitHub users (@name) or teams (@org/team).
+*                @your-org/leads
+/payments/       @your-org/payments-team
+/website/        @your-org/web-team
+*.md             @your-org/docs

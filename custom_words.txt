@@ -1,0 +1,2 @@
+# Words that are NOT mistakes (names, slang, product terms). One per line.
+# Add more with:  python spellcheck.py --add word1 word2

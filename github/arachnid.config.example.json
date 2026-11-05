@@ -1,0 +1,23 @@
+{
+  "teams": {
+    "@your-org/payments-team": "payments@your-firm.com",
+    "@your-org/web-team": "web@your-firm.com",
+    "@your-org/security": "security@your-firm.com"
+  },
+  "people": {
+    "@github-name": "name@your-firm.com"
+  },
+  "always": {
+    "alarm": ["@your-org/security"]
+  },
+  "email_domains": ["your-firm.com"],
+  "send": {
+    "alarm": ["owners", "author", "always"],
+    "attention": ["author"]
+  },
+  "mail": {
+    "host": "smtp.office365.com",
+    "port": 587,
+    "from": "arachnid@your-firm.com"
+  }
+}

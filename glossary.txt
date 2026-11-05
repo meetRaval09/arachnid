@@ -1,0 +1,4 @@
+# Teach Arachnid your own terms. One per line.
+#   GitHub              make every capitalisation of this term match
+#   colour => color     always replace the left word with the right word
+#   !Centre             never touch this word

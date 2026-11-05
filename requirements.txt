@@ -1,0 +1,5 @@
+# Arachnid's core needs only Python 3.10+ (the spell checker is included in vendor/).
+# These are optional and switch on extra features:
+playwright>=1.40   # the safety gate, page checks, memory checks (then run: python -m playwright install chromium)
+pillow>=10         # picture checks for page weight and the safety gate's pixel comparison
+pynacl>=1.5        # the setup page saves the mail password straight into GitHub's encrypted secrets

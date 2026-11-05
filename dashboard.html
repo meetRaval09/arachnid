@@ -1,0 +1,1159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arachnid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --night:#17131e; --panel:#211b2a; --panel-2:#282131; --silk:#d4cee0; --ink:#efeaf5; --muted:#a59bb5; --line:rgba(212,206,224,.14);
+  --widow:#e0474c; --dew:#e9b552; --moss:#8dbb84; --lilac:#ab9fdc;
+  --radius-big:20px; --radius-small:10px;
+  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --code:ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--night);color:var(--ink);font:16px/1.55 var(--body)}
+body{min-height:100vh;background:
+  radial-gradient(1100px 650px at 88% -12%, rgba(171,159,220,.09), transparent 60%),
+  radial-gradient(900px 600px at -12% 108%, rgba(224,71,76,.05), transparent 60%), var(--night)}
+a{color:var(--silk)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--dew);outline-offset:3px;border-radius:6px}
+.wrap{position:relative;max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+#gutterWebs{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;overflow:visible}
+
+/* ---------- header ---------- */
+header{position:relative;z-index:3;display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:6px 0 18px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand svg{width:40px;height:40px}
+.brand h1{font:800 30px/1 var(--display);letter-spacing:-.02em;margin:0}
+.project{flex:1;min-width:220px;color:var(--muted);font-size:14px}
+.project b{color:var(--ink);font:700 17px/1.2 var(--display);display:block}
+.project code{font:13px var(--code);word-break:break-all}
+.status{display:flex;align-items:center;gap:10px;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:14px}
+.status .dot{width:10px;height:10px;border-radius:50%;background:var(--moss)}
+.status.busy .dot{background:var(--dew);box-shadow:0 0 0 0 rgba(233,181,82,.6);animation:pulse 1.4s infinite}
+.status .conn{color:var(--muted);font-size:12.5px;border-left:1px solid var(--line);padding-left:10px}
+@keyframes pulse{to{box-shadow:0 0 0 10px rgba(233,181,82,0)}}
+
+/* ---------- panels, each one hung with its own cobweb ---------- */
+.grid{position:relative;display:grid;grid-template-columns:repeat(12,1fr);gap:20px}
+.panel{position:relative;grid-column:span 12;background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--line);
+  border-radius:var(--radius-big);padding:22px 22px 20px;isolation:isolate}
+.panel > .silk{position:absolute;inset:-1px;border-radius:inherit;overflow:hidden;pointer-events:none;z-index:-1}
+.panel > .silk svg{position:absolute;inset:0;width:100%;height:100%}
+.panel h2{font:700 22px/1.2 var(--display);margin:0 0 16px;letter-spacing:-.01em;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.panel h2 .count{font:700 15px var(--body);color:var(--muted)}
+.panel .sub{color:var(--muted);margin:0 0 14px;font-size:14px;max-width:72ch}
+.span-8{grid-column:span 8}.span-7{grid-column:span 7}.span-5{grid-column:span 5}.span-6{grid-column:span 6}.span-4{grid-column:span 4}
+@media (max-width:900px){.span-8,.span-7,.span-5,.span-6,.span-4{grid-column:span 12}}
+
+/* ---------- the orb web ---------- */
+.web-wrap{display:grid;grid-template-columns:minmax(0,1fr) 200px;gap:12px;align-items:center}
+@media (max-width:560px){.web-wrap{grid-template-columns:1fr}}
+#orb{width:100%;height:auto;max-height:470px;display:block;overflow:visible}
+#orb .drop{cursor:pointer}
+#orb .drop:hover,#orb .drop:focus{stroke:#fff;stroke-width:1.5}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.legend li{display:grid;grid-template-columns:14px 1fr auto;gap:10px;align-items:center;font-size:15px}
+.legend .sw{width:14px;height:14px;border-radius:50%}
+.legend b{font:800 22px/1 var(--display)}
+.verdict{margin:0 0 14px;font:700 19px/1.3 var(--display)}
+
+/* ---------- controls ---------- */
+.actions{display:grid;gap:10px;margin-bottom:16px}
+.btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;padding:12px 16px;border-radius:var(--radius-small);
+  border:1px solid var(--line);background:rgba(255,255,255,.03);cursor:pointer}
+.btn strong{font:700 17px/1.2 var(--display)}
+.btn span{color:var(--muted);font-size:13.5px}
+.btn:hover:not(:disabled){border-color:rgba(212,206,224,.45);background:rgba(255,255,255,.06)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--silk);color:#17131e;border-color:var(--silk)}
+.btn.primary span{color:#4a4058}
+.btn.primary:hover:not(:disabled){background:#fff}
+.btn.danger.armed{border-color:var(--widow);background:rgba(224,71,76,.15)}
+.more{display:flex;flex-wrap:wrap;gap:8px}
+.chip-btn{padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(23,19,30,.4);cursor:pointer;font-size:14px}
+.chip-btn:hover:not(:disabled){border-color:rgba(212,206,224,.45)}
+.chip-btn:disabled{opacity:.45;cursor:not-allowed}
+.watch{display:flex;gap:12px;align-items:flex-start;margin:16px 0 0;padding:12px 14px;border-radius:var(--radius-small);border:1px solid var(--line);background:rgba(13,10,18,.4)}
+.watch input{width:18px;height:18px;margin-top:3px;accent-color:var(--moss);flex:none}
+.watch label{cursor:pointer}
+.watch b{font-weight:700}
+.watch .wstate{display:block;color:var(--muted);font-size:13.5px;margin-top:2px}
+.notice{border-left:3px solid var(--dew);padding:8px 12px;background:rgba(233,181,82,.08);border-radius:0 8px 8px 0;font-size:14px;margin:0 0 14px}
+.notice[hidden]{display:none}
+
+/* ---------- live crawl ---------- */
+.live{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:18px}
+@media (max-width:900px){.live{grid-template-columns:1fr}}
+.stage{position:relative;height:440px;border-radius:var(--radius-small);background:rgba(13,10,18,.65);border:1px solid var(--line);overflow:hidden}
+.stage canvas{display:block;width:100%;height:100%;cursor:grab}
+.stage .hint{position:absolute;right:10px;bottom:8px;font-size:12.5px;color:var(--muted);background:rgba(13,10,18,.7);padding:2px 8px;border-radius:6px}
+/* the side column has a FIXED height and every line in it is one line tall, so nothing below it moves while the
+   spider walks (a changing height here made the whole page jump on every file) */
+.side{height:440px;display:flex;flex-direction:column;min-height:0;contain:size layout}
+.now{flex:none;padding:14px 16px;border-radius:var(--radius-small);background:rgba(13,10,18,.55);border:1px solid var(--line);margin-bottom:12px}
+.now .lab,.now .file,.now .tool{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now .lab{color:var(--muted);font-size:13px;line-height:20px;height:20px}
+.now .file{font:14px/22px var(--code);height:22px;color:var(--ink);margin:2px 0 4px}
+.now .tool{font-size:14px;line-height:22px;height:22px;color:var(--silk)}
+.tools-wrap{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;padding-right:12px}
+@media (max-width:900px){.side{height:380px}}
+.meter{height:4px;border-radius:4px;background:rgba(212,206,224,.12);overflow:hidden;margin-top:10px}
+.meter i{display:block;height:100%;width:0;background:var(--silk);transition:width .3s}
+.tools{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:14px}
+.tools li{display:grid;grid-template-columns:16px 1fr auto;gap:8px;align-items:center;color:var(--muted)}
+.tools li.done{color:var(--ink)}
+.tools li.active{color:var(--ink)}
+.tools .ic{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--muted)}
+.tools li.done .ic{background:var(--moss);border-color:var(--moss)}
+.tools li.active .ic{background:var(--dew);border-color:var(--dew);animation:pulse 1.4s infinite}
+.tools .n{font-variant-numeric:tabular-nums;font-size:13px}
+.replaybar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.replaybar[hidden]{display:none}
+.pill{font-size:13px;padding:3px 10px;border-radius:999px;background:rgba(171,159,220,.16);color:#ddd5f7}
+
+/* ---------- GitHub ---------- */
+.ghhead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px;font-size:14px;color:var(--muted)}
+.runs{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.run{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-radius:var(--radius-small);background:rgba(13,10,18,.5)}
+.run .sd{width:12px;height:12px;border-radius:50%;background:var(--muted)}
+.run.in_progress .sd,.run.queued .sd{background:var(--dew);animation:pulse 1.4s infinite}
+.run.success .sd{background:var(--moss)}.run.failure .sd{background:var(--widow)}.run.cancelled .sd{background:transparent;border:1.5px solid var(--muted)}
+.run .t{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run .m{color:var(--muted);font-size:13.5px}
+.run .acts{display:flex;gap:8px;align-items:center}
+.steps{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:3px;font-size:13.5px;grid-column:2 / -1}
+.steps li{display:flex;gap:8px;align-items:center;color:var(--muted)}
+.steps li.in_progress{color:var(--ink)}
+.steps li.completed.success{color:var(--ink)}
+.steps .k{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--muted)}
+.steps li.completed.success .k{background:var(--moss);border-color:var(--moss)}
+.steps li.completed.failure .k{background:var(--widow);border-color:var(--widow)}
+.steps li.in_progress .k{background:var(--dew);border-color:var(--dew);animation:pulse 1.4s infinite}
+
+/* ---------- log ---------- */
+.log{background:#110d16;border:1px solid var(--line);border-radius:var(--radius-small);height:240px;overflow:auto;padding:12px 14px;
+  font:12.5px/1.5 var(--code);color:#d8d1e4;white-space:pre-wrap;word-break:break-word}
+.log .hl-alarm{color:#ff8b8f}.log .hl-ok{color:#b3dba9}
+.logbar{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:0;flex-wrap:wrap}
+.logbar .when{color:var(--muted);font-size:14px}
+
+/* ---------- findings ---------- */
+.list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.item{display:grid;grid-template-columns:12px 1fr;gap:12px;padding:12px 14px;border-radius:var(--radius-small);background:rgba(13,10,18,.55);border:1px solid transparent}
+.item.flash{border-color:var(--silk)}
+.item .pip{width:12px;height:12px;border-radius:50%;margin-top:6px}
+.item .where{font:13px var(--code);color:var(--silk);word-break:break-all}
+.item .what{margin:2px 0 0}
+.item .why{color:var(--muted);font-size:14px;margin:2px 0 0}
+.item .todo{font-size:14px;margin:4px 0 0}
+.who{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.who span{font-size:12.5px;padding:2px 8px;border-radius:999px;background:rgba(171,159,220,.14);color:#d9d1f5}
+.who .old{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.empty{color:var(--muted);padding:6px 0;margin:0}
+.toggle{background:none;border:0;color:var(--silk);text-decoration:underline;cursor:pointer;padding:6px 0;font-size:14px}
+.tag{font-size:12.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-left:6px;white-space:nowrap}
+
+/* ---------- approvals ---------- */
+.prop{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:12px 14px;border-radius:var(--radius-small);background:rgba(13,10,18,.55)}
+.prop input{width:18px;height:18px;margin-top:4px;accent-color:var(--dew)}
+.prop .st{font-size:13px;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.st.pending{background:rgba(233,181,82,.16);color:#f2cf86}.st.approved{background:rgba(141,187,132,.18);color:#b9dcb2}
+.st.applied{background:rgba(141,187,132,.10);color:var(--muted)}.st.rejected{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.st.held{background:rgba(224,71,76,.15);color:#ff9fa2}
+.propbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.counts-inline{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:14px;margin:0 0 12px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--silk);color:#17131e;padding:10px 16px;border-radius:10px;
+  font-size:15px;max-width:min(560px,calc(100vw - 32px));box-shadow:0 10px 30px rgba(0,0,0,.4);z-index:10}
+.toast[hidden]{display:none}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <svg id="gutterWebs" aria-hidden="true"></svg>
+  <header>
+    <div class="brand">
+      <svg viewBox="-20 -20 40 40" aria-hidden="true"><use href="#spider-shape"/></svg>
+      <h1>Arachnid</h1>
+    </div>
+    <div class="project"><b id="projName">…</b><code id="projPath"></code></div>
+    <div class="status" id="status" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Resting on the web</span><span class="conn" id="conn">connecting…</span></div>
+    <a class="chip-btn" href="/setup" style="text-decoration:none">Setup</a>
+  </header>
+
+  <main class="grid">
+    <section class="panel span-7" aria-labelledby="webTitle" id="webPanel">
+      <h2 id="webTitle">What the crawler caught</h2>
+      <div class="web-wrap">
+        <svg id="orb" viewBox="-205 -205 410 410" role="img" aria-label="Findings drawn as drops on a spider web"></svg>
+        <div>
+          <p class="verdict" id="verdict">No scan yet.</p>
+          <ul class="legend" id="legend"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel span-5" aria-labelledby="ctrlTitle">
+      <h2 id="ctrlTitle">Send the crawler out</h2>
+      <p class="notice" id="staleNote" hidden></p>
+      <div class="actions">
+        <button class="btn primary" data-run="scan"><strong>Scan</strong></button>
+        <button class="btn" data-run="fix"><strong>Fix what is safe</strong></button>
+        <button class="btn danger" id="undoBtn"><strong>Undo the last change</strong></button>
+      </div>
+      <div class="more" aria-label="More checks">
+        <button class="chip-btn" data-run="netcheck">Outside connections</button>
+        <button class="chip-btn" data-run="size">Page weight</button>
+        <button class="chip-btn" data-run="leaks">Memory growth</button>
+        <button class="chip-btn" data-run="advise">Lighter code</button>
+        <button class="chip-btn" data-run="insights">Dead code</button>
+        <button class="chip-btn" data-run="selftest">Self-test</button>
+      </div>
+      <div class="watch">
+        <input type="checkbox" id="watchOn" checked>
+        <label for="watchOn"><b>Auto-scan new and changed files</b>
+          <span class="wstate" id="watchState">Watching</span></label>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="liveTitle" id="livePanel">
+      <h2 id="liveTitle">Live crawl</h2>
+      <div class="replaybar" id="replayBar" hidden><span class="pill" id="replayLabel"></span><button class="chip-btn" id="replayStop">Back to this computer</button></div>
+      <div class="live">
+        <div class="stage" id="stage"><canvas id="cv" aria-label="The project's files, with the spider at the file being read"></canvas><span class="hint" id="stageHint">Scroll to look around</span></div>
+        <div class="side">
+          <div class="now" aria-live="polite">
+            <div class="lab" id="nowLab">Reading now</div>
+            <div class="file" id="nowFile">Waiting for the crawler</div>
+            <div class="tool" id="nowTool"></div>
+            <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+          </div>
+          <div class="tools-wrap"><ul class="tools" id="tools" aria-label="Checks in this run"></ul></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="ghTitle" id="ghPanel">
+      <h2 id="ghTitle">On GitHub</h2>
+      <div class="ghhead" id="ghHead">Looking for this project on GitHub…</div>
+      <ul class="runs" id="runs"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="logTitle">
+      <div class="logbar">
+        <h2 id="logTitle">What the crawler is saying</h2>
+        <span class="when" id="logWhen">Nothing has run yet.</span>
+      </div>
+      <div class="log" id="log" tabindex="0" aria-label="Crawler output"></div>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="alarmTitle">
+      <h2 id="alarmTitle">Alarms <span class="count" id="cAlarm"></span></h2>
+      <ul class="list" id="listAlarm"></ul>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="decTitle">
+      <h2 id="decTitle">Needs your decision <span class="count" id="cDecision"></span></h2>
+      <ul class="list" id="listDecision"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="propTitle">
+      <h2 id="propTitle">Suggestions waiting for you <span class="count" id="cProp"></span></h2>
+      <div class="propbar">
+        <button class="chip-btn" id="approveSel" disabled>Approve selected</button>
+        <button class="chip-btn" id="rejectSel" disabled>Reject selected</button>
+        <button class="chip-btn" data-run="apply" id="applyBtn">Apply approved suggestions</button>
+      </div>
+      <ul class="list" id="listProp"></ul>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="hdTitle">
+      <h2 id="hdTitle">Handled by the crawler <span class="count" id="cHandled"></span></h2>
+      <div class="counts-inline" id="handledSummary"></div>
+      <ul class="list" id="listHandled"></ul>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="ideaTitle">
+      <h2 id="ideaTitle">Ideas <span class="count" id="cIdeas"></span></h2>
+      <div class="counts-inline" id="ideaSummary"></div>
+      <ul class="list" id="listIdeas"></ul>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="alert" hidden></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="spider-shape" fill="none" stroke="#efeaf5" stroke-width="1.6" stroke-linecap="round">
+      <path d="M-3-2 -9-9 -14-6M-3 0 -11-3 -16 1M-3 2 -11 5 -15 10M-2 4 -7 10 -9 16M3-2 9-9 14-6M3 0 11-3 16 1M3 2 11 5 15 10M2 4 7 10 9 16"/>
+      <ellipse cx="0" cy="-3" rx="3.4" ry="3" fill="#efeaf5" stroke="none"/>
+      <ellipse cx="0" cy="5" rx="5" ry="6.2" fill="#efeaf5" stroke="none"/>
+      <path d="M-1.6 3.2 1.6 3.2 0 5.4Z M-1.6 7.6 1.6 7.6 0 5.4Z" fill="#e0474c" stroke="none"/>
+    </g>
+  </defs>
+</svg>
+
+<script>
+"use strict";
+const TOKEN = "__ARACHNID_TOKEN__";
+const TIERS = [
+  {key:"alarm", name:"Alarms", color:"var(--widow)", hex:"#e0474c", r:[46, 86]},
+  {key:"attention", name:"Decisions", color:"var(--dew)", hex:"#e9b552", r:[92, 128]},
+  {key:"handled", name:"Handled", color:"var(--moss)", hex:"#8dbb84", r:[134, 162]},
+  {key:"ideas", name:"Ideas", color:"var(--lilac)", hex:"#ab9fdc", r:[168, 192]},
+];
+const TOOL_WORDS = {
+  arachnid:"Getting ready", crawler:"Mapping the folders", spellcheck:"Spelling", syntaxcheck:"Code grammar", logiccheck:"Unused code",
+  textcheck:"Meaning breakers", terms:"Terminology", netcheck:"Outside connections", bundlesize:"Page weight", advisor:"Lighter code",
+  links:"Missing files", dedupe:"Duplicate files", clones:"Nested folders", insights:"Dead code and ideas", triage:"Sorting the results",
+  leakcheck:"Memory growth", proposals:"Suggestions", pixelcheck:"Safety gate", gate:"Safety gate", ci_summary:"Writing the report", notify:"E-mails",
+  report:"Writing the report"
+};
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = s => document.querySelector(s);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+let state = null, selected = new Set();
+
+/* =====================================================================================================
+   SILK.  Real cobwebs are not neat: a few strong anchor lines, then a tangle of threads that sag under
+   their own weight, cross each other, snap and dangle. Every panel gets its own, grown from its own seed.
+   ===================================================================================================== */
+function rand(seed){ let s = (seed * 9301 + 49297) % 233280 || 1; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function sagPath(x1, y1, x2, y2, sag){         // a thread hanging between two points (a shallow curve pulled down)
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 + sag;
+  return `M${x1.toFixed(1)} ${y1.toFixed(1)}Q${mx.toFixed(1)} ${my.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+function cornerTangle(g, R, cx, cy, sx, sy, size){
+  // anchor points crawl along the two edges that meet at this corner
+  const along = n => [...Array(n)].map(() => Math.pow(R(), 0.8) * size);
+  const edgeA = along(5 + Math.floor(R() * 4)).map(d => [cx + sx * d, cy]);
+  const edgeB = along(5 + Math.floor(R() * 4)).map(d => [cx, cy + sy * d]);
+  const pts = [...edgeA, ...edgeB];
+  // a few points floating inside the corner, where threads meet
+  for (let i = 0; i < 10; i++) { const d = R() * size * .75, a = R() * Math.PI / 2; pts.push([cx + sx * Math.cos(a) * d, cy + sy * Math.sin(a) * d]); }
+  let main = "", fine = "";
+  // strong anchor lines from the corner out
+  pts.slice(0, 6).forEach(([x, y]) => { main += sagPath(cx, cy, x, y, R() * 3); });
+  // the tangle: threads between random pairs, sagging with gravity (always pulled down the screen)
+  for (let i = 0; i < 46; i++) {
+    const a = pts[Math.floor(R() * pts.length)], b = pts[Math.floor(R() * pts.length)];
+    if (a === b) continue;
+    const len = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const t = sagPath(a[0], a[1], b[0], b[1], len * (0.04 + R() * 0.12));
+    if (R() < .35) main += t; else fine += t;
+  }
+  // a sheet: short cross threads stacked near the corner, like the dense part of a cobweb
+  for (let k = 1; k < 7; k++) {
+    const d = k * size * (0.07 + R() * 0.03);
+    fine += sagPath(cx + sx * d * (1 + R() * .3), cy, cx, cy + sy * d * (1 + R() * .3), d * .12);
+  }
+  g.appendChild(svgEl("path", {d: main, stroke: "#d4cee0", "stroke-opacity": (.36 + R() * .14).toFixed(2), "stroke-width": ".85", fill: "none"}));
+  g.appendChild(svgEl("path", {d: fine, stroke: "#d4cee0", "stroke-opacity": (.2 + R() * .1).toFixed(2), "stroke-width": ".55", fill: "none"}));
+  // one broken strand dangling, with a couple of dew beads caught on it
+  const [ax, ay] = edgeA[Math.floor(R() * edgeA.length)];
+  const hang = 30 + R() * 50, sway = (R() - .5) * 18;
+  g.appendChild(svgEl("path", {d: `M${ax.toFixed(1)} ${ay.toFixed(1)}q${(sway / 2).toFixed(1)} ${(hang / 2).toFixed(1)} ${sway.toFixed(1)} ${(sy * hang).toFixed(1)}`,
+    stroke: "#d4cee0", "stroke-opacity": ".3", "stroke-width": ".6", fill: "none"}));
+  for (let b = 0; b < 2; b++) {
+    const t = .45 + b * .35;
+    g.appendChild(svgEl("circle", {cx: (ax + sway * t * t).toFixed(1), cy: (ay + sy * hang * t).toFixed(1), r: (1 + R() * .8).toFixed(1), fill: "#efeaf5", "fill-opacity": ".55"}));
+  }
+}
+function spinPanel(panel, seed){
+  const old = panel.querySelector(":scope > .silk"); if (old) old.remove();
+  const w = panel.clientWidth, h = panel.clientHeight; if (!w || !h) return;
+  const R = rand(seed), box = el("div", "silk"), svg = svgEl("svg", {viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: "none", "aria-hidden": "true"});
+  const g = svgEl("g", {"stroke-linecap": "round"}); svg.appendChild(g);
+  // the top-left corner is where every panel's title sits, so silk is only spun in the other three
+  const corners = [[w, 0, -1, 1], [w, h, -1, -1], [0, h, 1, -1]];
+  // two corners per panel - which two depends on the seed, so neighbours never look copied
+  const first = Math.floor(R() * 3), second = (first + 1 + Math.floor(R() * 2)) % 3;
+  [first, second].forEach((ci, i) => { const [cx, cy, sx, sy] = corners[ci]; cornerTangle(g, R, cx, cy, sx, sy, Math.min(ci === 0 ? 150 : i ? 170 : 250, w * .45, h * .85)); });
+  // a long stray thread across the top, the way real silk drifts from one support to another
+  const y0 = 4 + R() * 30;
+  g.appendChild(svgEl("path", {d: sagPath(R() * w * .3, 0, w * (.55 + R() * .4), 0, y0 + 20), stroke: "#d4cee0", "stroke-opacity": ".12", "stroke-width": ".5", fill: "none"}));
+  box.appendChild(svg); panel.prepend(box);
+}
+function spinGutters(){
+  // threads tied from one panel to the next, sagging across the gaps between them
+  const svg = $("#gutterWebs"), wrap = $("#wrap"); svg.textContent = "";
+  const W = wrap.getBoundingClientRect(), R = rand(77);
+  const boxes = [...document.querySelectorAll(".panel")].map(p => { const r = p.getBoundingClientRect(); return {l: r.left - W.left, t: r.top - W.top, r: r.right - W.left, b: r.bottom - W.top}; });
+  let d = "";
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i], b = boxes[j];
+    const side = Math.abs(a.r - b.l) < 30 && a.t < b.b && b.t < a.b;           // b is to the right of a
+    const below = Math.abs(a.b - b.t) < 30 && a.l < b.r && b.l < a.r;          // b is under a
+    if (!side && !below) continue;
+    const n = 2 + Math.floor(R() * 2);
+    for (let k = 0; k < n; k++) {
+      if (side) { const y = Math.max(a.t, b.t) + 20 + R() * 90; const y2 = y + (R() - .5) * 40; d += sagPath(a.r - 8, y, b.l + 8, y2, 6 + R() * 10); }
+      else { const x = Math.max(a.l, b.l) + 30 + R() * Math.max(60, Math.min(a.r, b.r) - Math.max(a.l, b.l) - 60); d += sagPath(x, a.b - 6, x + (R() - .5) * 60, b.t + 6, 4 + R() * 8); }
+    }
+  }
+  svg.appendChild(svgEl("path", {d, stroke: "#d4cee0", "stroke-opacity": ".22", "stroke-width": ".6", fill: "none"}));
+}
+function spinAll(){ document.querySelectorAll(".panel").forEach((p, i) => spinPanel(p, 11 + i * 37)); spinGutters(); }
+
+/* =====================================================================================================
+   THE ORB WEB of findings - a real orb is never perfect: wobbly spiral, uneven gaps, a torn patch.
+   ===================================================================================================== */
+const SPOKES = 21;
+const spokeAngles = (() => { const R = rand(11); return [...Array(SPOKES)].map((_, i) => (i / SPOKES) * Math.PI * 2 - Math.PI / 2 + (R() - .5) * .16); })();
+const spokeLen = (() => { const R = rand(12); return spokeAngles.map(() => 176 + R() * 24); })();
+function hash(s){ let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function drawOrb(findings){
+  const svg = $("#orb"), R = rand(5); svg.textContent = "";
+  const pt = (a, r) => [Math.cos(a) * r, Math.sin(a) * r];
+  // frame threads and the anchor lines that tie the orb to the panel
+  let frame = "", anchors = "";
+  spokeAngles.forEach((a, i) => { const [x, y] = pt(a, spokeLen[i]); const [x2, y2] = pt(spokeAngles[(i + 1) % SPOKES], spokeLen[(i + 1) % SPOKES]); frame += `M${x.toFixed(1)} ${y.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}`; });
+  [[-205, -205], [205, -190], [-200, 205], [205, 200], [0, -205]].forEach(([ax, ay]) => {
+    let best = 0, bd = 1e9; spokeAngles.forEach((a, i) => { const [x, y] = pt(a, spokeLen[i]); const dd = Math.hypot(x - ax, y - ay); if (dd < bd) { bd = dd; best = i; } });
+    const [x, y] = pt(spokeAngles[best], spokeLen[best]); anchors += sagPath(x, y, ax, ay, 4);
+  });
+  let radial = "";
+  spokeAngles.forEach((a, i) => { const [x, y] = pt(a, spokeLen[i]); radial += `M0 0L${x.toFixed(1)} ${y.toFixed(1)}`; });
+  // capture spiral: wobbly rings, a few missing pieces, one torn patch where a fly broke through
+  const tornSpoke = 6, tornFrom = 110, tornTo = 150;
+  let spiral = "";
+  for (let r = 24; r < 192; r += 7.5 + R() * 3.5) {
+    for (let i = 0; i < SPOKES; i++) {
+      const a1 = spokeAngles[i], a2 = spokeAngles[(i + 1) % SPOKES] + (i === SPOKES - 1 ? Math.PI * 2 : 0);
+      const r1 = r + (R() - .5) * 3, r2 = r + (R() - .5) * 3;
+      if (r1 > Math.min(spokeLen[i], spokeLen[(i + 1) % SPOKES]) - 4) continue;
+      if (R() < .035) continue;                                        // a missing piece
+      if ((i === tornSpoke || i === tornSpoke + 1) && r > tornFrom && r < tornTo) continue;   // the torn patch
+      const [x1, y1] = pt(a1, r1), [x2, y2] = pt(a2, r2), [cx, cy] = pt((a1 + a2) / 2, (r1 + r2) / 2 * .93);
+      spiral += `M${x1.toFixed(1)} ${y1.toFixed(1)}Q${cx.toFixed(1)} ${(cy + 1.5).toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+    }
+  }
+  // loose ends hanging from the torn patch
+  let loose = "";
+  const [tx, ty] = pt(spokeAngles[tornSpoke], tornFrom + 6);
+  loose += `M${tx.toFixed(1)} ${ty.toFixed(1)}q4 12 -2 26`; const [tx2, ty2] = pt(spokeAngles[tornSpoke + 1], tornTo - 4); loose += `M${tx2.toFixed(1)} ${ty2.toFixed(1)}q-5 10 1 20`;
+  // the hub: a small dense mesh where the spider sits
+  let hub = "";
+  for (let r = 6; r < 20; r += 3.2) { spokeAngles.forEach((a, i) => { const [x, y] = pt(a, r + (R() - .5)); hub += (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1); }); hub += "Z"; }
+  const silk = (d, op, w) => svg.appendChild(svgEl("path", {d, fill: "none", stroke: "#d4cee0", "stroke-opacity": op, "stroke-width": w, "stroke-linecap": "round"}));
+  silk(anchors, .28, .9); silk(frame, .32, .9); silk(radial, .3, .7); silk(spiral, .26, .6); silk(loose, .3, .55); silk(hub, .22, .5);
+  // findings as drops caught in the web
+  const byTier = {}; TIERS.forEach(t => byTier[t.key] = []);
+  (findings || []).forEach(f => byTier[f.tier] && byTier[f.tier].push(f));
+  const used = new Set();
+  TIERS.forEach(t => {
+    byTier[t.key].slice(0, 60).forEach((f, i) => {
+      const h = hash(f.id + i);
+      let s = h % SPOKES, r = t.r[0] + (h >>> 8) % (t.r[1] - t.r[0]);
+      for (let k = 0; k < 6 && used.has(s + ":" + Math.round(r / 9)); k++) { s = (s + 5) % SPOKES; r = t.r[0] + ((h >>> (12 + k)) % (t.r[1] - t.r[0])); }
+      used.add(s + ":" + Math.round(r / 9));
+      const [x, y] = pt(spokeAngles[s], r);
+      const c = svgEl("circle", {cx: x.toFixed(1), cy: y.toFixed(1), r: f.tier === "alarm" ? 6 : 4.5, fill: t.hex, class: "drop", tabindex: "0",
+        "aria-label": `${t.name}: ${f.file}${f.line ? ":" + f.line : ""} ${f.what}`});
+      const title = svgEl("title", {}); title.textContent = `${f.file}${f.line ? ":" + f.line : ""}\n${f.what}`; c.appendChild(title);
+      const go = () => jumpTo(f.id);
+      c.addEventListener("click", go); c.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      svg.appendChild(c);
+    });
+  });
+  svg.appendChild(svgEl("use", {href: "#spider-shape", transform: "scale(1.6)"}));
+}
+function jumpTo(id){
+  const n = document.querySelector(`[data-fid="${id}"]`);
+  if (!n) return;
+  const list = n.closest(".list"); if (list && list.dataset.collapsed === "1") expand(list);
+  n.scrollIntoView({behavior: REDUCED ? "auto" : "smooth", block: "center"});
+  n.classList.add("flash"); setTimeout(() => n.classList.remove("flash"), 1600);
+}
+
+/* =====================================================================================================
+   LIVE CRAWL - the project's files as a hanging tree of silk; the spider walks to each file as it is read.
+   ===================================================================================================== */
+const ROW = 28, INDENT = 16, PAD = 14, LANE = 104, SPX = PAD + 50;   // the spider walks in its own lane on the left
+const live = {rows: [], index: new Map(), visits: new Map(), marks: new Map(), queue: [], cur: null, camY: 0, follow: true, followAt: 0,
+              sp: {x: SPX, y: 60, vx: 0, vy: 0, h: Math.PI / 2, t: 0, clk: 0, tx: SPX, ty: 60}, mode: "home", msg: null, pendingMsg: false, total: 0, seen: 0,
+              tools: new Map(), activeTool: null, replay: null, lastPlay: 0, trail: [], fresh: new Map()};
+const cv = $("#cv"), ctx = cv.getContext("2d");
+let DPR = 1, VW = 600, VH = 440;
+function sizeCanvas(){
+  const r = $("#stage").getBoundingClientRect(); DPR = Math.min(2, devicePixelRatio || 1);
+  VW = Math.max(280, r.width); VH = Math.max(240, r.height); cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+}
+function buildTree(files){
+  // folders first, then files, each folder as its own row so the silk can hang from it
+  const rows = [], index = new Map(), seenDir = new Set();
+  files.forEach(f => {
+    const parts = f.split("/");
+    for (let d = 1; d < parts.length; d++) {
+      const dir = parts.slice(0, d).join("/");
+      if (!seenDir.has(dir)) { seenDir.add(dir); rows.push({path: dir, name: parts[d - 1] + "/", depth: d - 1, dir: true, parent: d > 1 ? parts.slice(0, d - 1).join("/") : null}); index.set(dir, rows.length - 1); }
+    }
+    rows.push({path: f, name: parts[parts.length - 1], depth: parts.length - 1, dir: false, parent: parts.length > 1 ? parts.slice(0, -1).join("/") : null});
+    index.set(f, rows.length - 1);
+  });
+  live.rows = rows; live.index = index; live.total = files.length;
+}
+const HOME_H = 116;                                   // space at the top of the lane for the spider's home web
+const HOME = {x: SPX, y: 60};
+function rowY(i){ return PAD + HOME_H + i * ROW + ROW / 2; }
+function rowX(r){ return PAD + LANE + r.depth * INDENT; }
+async function loadTree(){
+  try { const t = await (await fetch("/api/tree")).json(); buildTree(t.files); $("#stageHint").textContent = t.cut ? `First ${t.files.length} files` : `${t.files.length} files`; }
+  catch (e) { /* dashboard stopped */ }
+}
+function marksFromReport(rep){
+  live.marks = new Map();
+  (rep ? rep.findings : []).forEach(f => {
+    if (f.tier !== "alarm" && f.tier !== "attention") return;
+    const cur = live.marks.get(f.file);
+    if (!cur || f.tier === "alarm") live.marks.set(f.file, f.tier);
+  });
+}
+function onTrail(evs){
+  evs.forEach(e => {
+    if (e.start) { if (!live.tools.has(e.tool)) live.tools.set(e.tool, {n: 0, done: false}); return; }
+    if (!e.file) return;
+    live.queue.push(e);
+  });
+}
+function playNext(now){
+  // the crawler is often much faster than an eye can follow: play the trail at a watchable pace that speeds up when it falls behind
+  // while the crawler is still working, a short trail is played at a calm pace; once it has finished, the rest is
+  // played quickly so the walk ends within a couple of seconds of the real work
+  const n = live.queue.length, calm = (busy() || live.replay) && n <= 150;
+  const gap = !calm ? 0 : n > 60 ? 40 : n > 15 ? 90 : 170;
+  if (!live.queue.length || now - live.lastPlay < (REDUCED ? 0 : gap)) return;
+  // a long backlog (a big project, a fast machine): read several files per step so the spider never falls far behind
+  const batch = REDUCED ? live.queue.splice(0) : live.queue.splice(0, calm ? 1 : Math.ceil(n / 120));
+  live.lastPlay = now;
+  batch.forEach(e => {
+    const t = live.tools.get(e.tool) || {n: 0, done: false}; t.n++; live.tools.set(e.tool, t);
+    if (live.activeTool && live.activeTool !== e.tool && live.tools.get(live.activeTool)) live.tools.get(live.activeTool).done = true;
+    live.activeTool = e.tool;
+    const v = live.visits.get(e.file) || 0; if (!v) live.seen++; live.visits.set(e.file, v + 1);
+    live.cur = e; live.mode = "walk"; live.msg = null;
+    const i = live.index.get(e.file);
+    if (i != null) { const r = live.rows[i]; live.sp.tx = SPX; live.sp.ty = rowY(i); live.trail.push(i); if (live.trail.length > 14) live.trail.shift(); }
+  });
+  setNowFile(live.cur.file);
+  $("#nowTool").textContent = "Read by: " + (TOOL_WORDS[live.cur.tool] || live.cur.tool);
+  $("#meter").style.width = jobProgress().toFixed(1) + "%";
+  $("#nowLab").textContent = "Reading now";
+  renderTools();
+}
+function setNowFile(path){
+  // one line only: if the path is too long, keep the file name and drop folders from the front ("…/app/main.js")
+  const n = $("#nowFile"); n.title = path; n.textContent = path;
+  if (n.scrollWidth <= n.clientWidth) return;
+  const parts = path.split("/");
+  for (let i = 1; i < parts.length; i++) { n.textContent = "…/" + parts.slice(i).join("/"); if (n.scrollWidth <= n.clientWidth) return; }
+}
+function renderTools(){
+  const ul = $("#tools"); ul.textContent = "";
+  for (const [k, t] of live.tools) {
+    if (k === "arachnid") continue;
+    const li = el("li", k === live.activeTool && !t.done && (busy() || live.replay) ? "active" : (t.n || t.done ? "done" : ""));
+    li.append(el("span", "ic"), el("span", "", TOOL_WORDS[k] || k), el("span", "n", t.n ? `${t.n} file${t.n > 1 ? "s" : ""}` : t.done ? "nothing new" : ""));
+    ul.appendChild(li);
+  }
+
+}
+// the checks a scan runs, in order - so the bar can show how far the WHOLE job is, not just the current check
+const SCAN_STEPS = ["crawler", "spellcheck", "syntaxcheck", "logiccheck", "textcheck", "terms", "netcheck", "bundlesize", "advisor", "links", "dedupe", "clones", "insights", "triage"];
+function jobProgress(){
+  const j = state && state.job, steps = j && j.name === "scan" ? SCAN_STEPS : [...live.tools.keys()].filter(k => k !== "arachnid");
+  if (!steps.length || !live.cur) return 0;
+  const i = Math.max(0, steps.indexOf(live.cur.tool)), cur = live.tools.get(live.cur.tool);
+  // files differ per check (some only read code, some only pages), so a check counts as "half way" until the next one starts
+  const within = cur && live.total ? Math.min(.9, cur.n / Math.max(1, live.total)) : 0;
+  return Math.min(99, (i + within) / steps.length * 100);
+}
+function finishLive(){
+  // wait until the spider has walked the whole trail, then mark every check finished
+  const t = setInterval(() => { if (live.queue.length) return; clearInterval(t);
+    for (const v of live.tools.values()) v.done = true; live.activeTool = null; renderTools();
+    $("#meter").style.width = "100%";                       // the job is done: the bar is full
+    if (live.cur) $("#nowLab").textContent = live.replay ? "Last file read in that run" : "Last file read";
+    goHome(true); }, 300);
+}
+function resetLive(label){
+  live.mode = "walk"; live.msg = null; live.pendingMsg = false;
+  live.queue = []; live.visits = new Map(); live.tools = new Map(); live.activeTool = null; live.seen = 0; live.cur = null; live.trail = [];
+  $("#nowFile").textContent = label || "-"; $("#nowTool").textContent = ""; $("#meter").style.width = "0"; renderTools();
+}
+// --- the spider: the same one as the first Arachnid demo - jointed legs that really step (each foot stays planted
+//     until the body has moved far enough, then lifts and swings forward, alternating sides), a segmented body
+//     with a gentle breath, six red eyes, and front legs that reach out and tap the file it is reading ---
+const TAU = Math.PI * 2, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const wrapA = a => { while (a > Math.PI) a -= TAU; while (a < -Math.PI) a += TAU; return a; };
+const SS = 0.56;                                     // size of the spider (the demo used 0.95 on a much bigger stage)
+const L1 = 44 * SS, L2 = 58 * SS, MAXV = 420;
+const HIPS = [[16, 8], [7, 11.5], [-5, 11.5], [-15, 8]];
+const REST = [[54, 46], [32, 64], [-8, 66], [-46, 52]];
+const ABD = [[-10, 0], [-18, -8], [-32, -12], [-48, -7], [-54, 0], [-48, 7], [-32, 12], [-18, 8]];
+const THX = [[30, 0], [23, -8], [9, -14], [-7, -12], [-13, 0], [-7, 12], [9, 14], [23, 8]];
+const legs = [];
+for (const side of [1, -1]) for (let i = 0; i < 4; i++)
+  legs.push({hip: [HIPS[i][0] * SS, side * HIPS[i][1] * SS], rest: [REST[i][0] * SS, side * REST[i][1] * SS], side,
+             g: (i + (side > 0 ? 0 : 1)) % 2, front: i === 0, tw: 0, fx: 0, fy: 0, stepping: false, t: 0, dur: .12, ax: 0, ay: 0, bx: 0, by: 0, lift: 0});
+let feetPlaced = false;
+function loc(x, y){ const sp = live.sp, c = Math.cos(sp.h), s = Math.sin(sp.h); return [sp.x + x * c - y * s, sp.y + x * s + y * c]; }
+function placeFeet(){ for (const l of legs) { const r = loc(l.rest[0], l.rest[1]); l.fx = r[0]; l.fy = r[1]; l.stepping = false; l.lift = 0; } feetPlaced = true; }
+function ik(hx, hy, fx, fy, side){
+  const sp = live.sp, dx = fx - hx, dy = fy - hy, d = Math.hypot(dx, dy) || .001;
+  const dc = clamp(d, Math.abs(L1 - L2) + .5, L1 + L2 - .5), ux = dx / d, uy = dy / d;
+  const a = (L1 * L1 - L2 * L2 + dc * dc) / (2 * dc), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  let px = -uy, py = ux; const ox = -side * Math.sin(sp.h), oy = side * Math.cos(sp.h);
+  if (px * ox + py * oy < 0) { px = -px; py = -py; }
+  return [hx + ux * a + px * h, hy + uy * a + py * h];
+}
+function updateLegs(dt, probe){
+  const sp = live.sp, busyG = [false, false];
+  for (const l of legs) if (l.stepping) busyG[l.g] = true;
+  const speed = Math.hypot(sp.vx, sp.vy), moving = speed > 30;
+  for (const l of legs) {
+    if (probe && l.front) {                                    // feel the file with the front legs
+      const hip = loc(l.hip[0], l.hip[1]), dx = probe.x - hip[0], dy = probe.y - hip[1];
+      const d = Math.hypot(dx, dy) || 1, reach = (L1 + L2) * .93, tap = Math.sin(sp.clk * 16 + (l.side > 0 ? 0 : 1.6)) * 3 * SS;
+      const dd = Math.min(d, reach) + tap, k = Math.min(1, dt * 20);
+      l.fx += (hip[0] + dx / d * dd - l.fx) * k; l.fy += (hip[1] + dy / d * dd - l.fy) * k; l.stepping = false; l.lift = .7;
+      continue;
+    }
+    if (l.stepping) {
+      l.t += dt / l.dur;
+      if (l.t >= 1) { l.t = 1; l.stepping = false; l.lift = 0; l.fx = l.bx; l.fy = l.by; }
+      else { const u = 1 - Math.pow(1 - l.t, 3); l.fx = l.ax + (l.bx - l.ax) * u; l.fy = l.ay + (l.by - l.ay) * u; l.lift = Math.sin(Math.PI * Math.min(1, l.t * 1.15)); }
+      continue;
+    }
+    if (l.lift > 0) l.lift = Math.max(0, l.lift - dt * 5);
+    if (!moving && !REDUCED && Math.random() < dt * .9) l.tw = 1;   // the odd twitch while standing still
+    if (l.tw > 0) { l.tw = Math.max(0, l.tw - dt * 7); l.lift = Math.max(l.lift, .55 * l.tw); const j = 2.4 * SS * l.tw; l.fx += (Math.random() - .5) * j; l.fy += (Math.random() - .5) * j; }
+    const hip = loc(l.hip[0], l.hip[1]), rest = loc(l.rest[0], l.rest[1]);
+    const rx = rest[0] + sp.vx * .12, ry = rest[1] + sp.vy * .12;
+    const dist = Math.hypot(l.fx - rx, l.fy - ry), hd = Math.hypot(l.fx - hip[0], l.fy - hip[1]);
+    const thr = 24 * SS * (speed > 20 ? 1 : 1.25), emergency = hd > L1 + L2 - 6 * SS;
+    if ((dist > thr && !busyG[1 - l.g]) || emergency) {
+      l.stepping = true; busyG[l.g] = true; l.t = 0; l.dur = clamp(.12 - speed * .0002, .06, .12);
+      l.ax = l.fx; l.ay = l.fy; l.bx = rx + sp.vx * .05 + (Math.random() - .5) * 3 * SS; l.by = ry + sp.vy * .05 + (Math.random() - .5) * 3 * SS;
+    }
+  }
+}
+function poly(pts){ ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); }
+function drawLeg(l){
+  const sp = live.sp, hip = loc(l.hip[0], l.hip[1]), k = ik(hip[0], hip[1], l.fx, l.fy, l.side);
+  const ox = -l.side * Math.sin(sp.h), oy = l.side * Math.cos(sp.h);
+  k[0] += ox * l.lift * 13 * SS; k[1] += oy * l.lift * 13 * SS;
+  const lx = l.fx - k[0], ly = l.fy - k[1], ll = Math.hypot(lx, ly) || 1;
+  let px = -ly / ll, py = lx / ll; if (px * ox + py * oy < 0) { px = -px; py = -py; }
+  const mx = k[0] + lx * .55 + px * 3.5 * SS, my = k[1] + ly * .55 + py * 3.5 * SS;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const [c, w1, w2] of [["#06090d", 7.5 * SS, 5.5 * SS], ["#6a7584", 3.6 * SS, 2.5 * SS]]) {
+    ctx.strokeStyle = c;
+    ctx.lineWidth = w1; ctx.beginPath(); ctx.moveTo(hip[0], hip[1]); ctx.lineTo(k[0], k[1]); ctx.stroke();
+    ctx.lineWidth = w2; ctx.beginPath(); ctx.moveTo(k[0], k[1]); ctx.lineTo(mx, my); ctx.lineTo(l.fx, l.fy); ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(190,200,215,.55)"; ctx.lineWidth = Math.max(.6, 1 * SS);
+  ctx.beginPath(); ctx.moveTo(hip[0], hip[1]); ctx.lineTo(k[0], k[1]); ctx.stroke();
+  ctx.strokeStyle = "#9aa6b5"; ctx.lineWidth = Math.max(.8, 1.5 * SS);
+  ctx.beginPath(); ctx.moveTo(l.fx, l.fy); ctx.lineTo(l.fx + lx / ll * 4 * SS, l.fy + ly / ll * 4 * SS); ctx.stroke();
+  for (const j of [k, [mx, my]]) { ctx.beginPath(); ctx.arc(j[0], j[1], 3.4 * SS, 0, TAU); ctx.fillStyle = "#1b232d"; ctx.fill(); ctx.lineWidth = .6; ctx.strokeStyle = "#7d8999"; ctx.stroke(); }
+}
+function drawBody(reading){
+  const sp = live.sp, mv = Math.hypot(sp.vx, sp.vy) > 30, br = SS * (1 + .012 * Math.sin(sp.t * 2.5));
+  ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(sp.h); ctx.scale(br, br);
+  ctx.save(); ctx.translate(-10, 0); ctx.rotate(Math.sin(sp.t * (mv ? 13 : 2.2)) * (mv ? .07 : .025)); ctx.translate(10, 0);
+  let g = ctx.createLinearGradient(0, -12, 0, 12);
+  g.addColorStop(0, "#414c5a"); g.addColorStop(.5, "#161c24"); g.addColorStop(1, "#2f3946");
+  poly(ABD); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = "#566273"; ctx.stroke();
+  ctx.strokeStyle = "rgba(150,165,180,.28)"; ctx.lineWidth = 1.2;
+  for (const x of [-24, -33, -42]) { const w = x > -30 ? 9.5 : x > -38 ? 10.5 : 7.5; ctx.beginPath(); ctx.moveTo(x, -w); ctx.lineTo(x, w); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(-47, 0); ctx.lineTo(-20, 0); ctx.strokeStyle = "rgba(150,165,180,.35)"; ctx.stroke();
+  ctx.restore();
+  g = ctx.createLinearGradient(0, -14, 0, 14);
+  g.addColorStop(0, "#4f5b6b"); g.addColorStop(.5, "#1b222b"); g.addColorStop(1, "#384453");
+  poly(THX); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = "#647182"; ctx.stroke();
+  ctx.strokeStyle = "rgba(170,185,200,.3)"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(-6, -8); ctx.lineTo(10, -4); ctx.lineTo(10, 4); ctx.lineTo(-6, 8); ctx.stroke();
+  const tw = reading ? Math.sin(sp.t * 26) * 2.2 + 1.5 : Math.sin(sp.t * 3) * .5;      // the mouth parts work while it reads
+  ctx.strokeStyle = "#a3afbe"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const s of [1, -1]) { ctx.beginPath(); ctx.moveTo(28, s * 3); ctx.lineTo(37, s * (5.5 + tw)); ctx.lineTo(42, s * 1.6); ctx.stroke(); }
+  for (const [x, y, r] of [[23, -3.2, 2.7], [23, 3.2, 2.7], [19, -6.6, 2], [19, 6.6, 2], [26.5, -1.2, 1.2], [26.5, 1.2, 1.2]]) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = "#c2352e"; ctx.fill();
+    ctx.beginPath(); ctx.arc(x + .3, y - .3, r * .38, 0, TAU); ctx.fillStyle = "#efb1ad"; ctx.fill();
+  }
+  ctx.restore();
+}
+function drawSpider(reading){
+  if (!feetPlaced) placeFeet();
+  for (const l of legs) drawLeg(l);
+  drawBody(reading);
+}
+function drawLive(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, VW, VH);
+  const sp = live.sp, rows = live.rows;
+  if (!rows.length) { ctx.fillStyle = "#a59bb5"; ctx.font = "14px " + getComputedStyle(document.body).fontFamily; ctx.fillText("Loading the project's files…", 16, 30); return; }
+  const contentH = PAD * 2 + HOME_H + rows.length * ROW;
+  if (live.follow) { const target = Math.max(0, Math.min(contentH - VH, sp.y - VH * .42)); live.camY += (target - live.camY) * .22; }
+  live.camY = Math.max(0, Math.min(Math.max(0, contentH - VH), live.camY));
+  ctx.translate(0, -live.camY);
+  const first = Math.max(0, Math.floor((live.camY - PAD - HOME_H) / ROW) - 1), last = Math.min(rows.length - 1, Math.ceil((live.camY + VH) / ROW) + 1);
+  // silk: each folder lets down a thread, each child hangs off it on a little sagging strand
+  ctx.lineWidth = .7;
+  for (let i = first; i <= last; i++) {
+    const r = rows[i]; if (r.parent == null) continue;
+    const pi = live.index.get(r.parent), px = rowX(rows[pi]) + 5, y = rowY(i), py = rowY(Math.max(pi, first - 1));
+    const visited = live.visits.has(r.path);
+    ctx.strokeStyle = visited ? "rgba(212,206,224,.55)" : "rgba(212,206,224,.16)";
+    ctx.beginPath(); ctx.moveTo(px, i === first ? py : y - ROW); ctx.lineTo(px, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px, y); ctx.quadraticCurveTo((px + rowX(r)) / 2, y + 3, rowX(r) - 4, y); ctx.stroke();
+  }
+  // dragline: the silk the spider leaves between the last files it visited
+  if (live.trail.length > 1) {
+    ctx.strokeStyle = "rgba(239,234,245,.35)"; ctx.lineWidth = .8; ctx.beginPath();
+    live.trail.forEach((ti, k) => { const y = rowY(ti); if (!k) ctx.moveTo(SPX, y); else ctx.lineTo(SPX, y); });
+    ctx.lineTo(sp.x, sp.y); ctx.stroke();
+  }
+  const font = getComputedStyle(document.body).fontFamily;
+  for (let i = first; i <= last; i++) {
+    const r = rows[i], y = rowY(i), x = rowX(r);
+    const v = live.visits.get(r.path) || 0, mark = live.marks.get(r.path), isCur = live.cur && live.cur.file === r.path;
+    if (isCur) { ctx.fillStyle = "rgba(212,206,224,.08)"; ctx.fillRect(x - 10, y - ROW / 2 + 2, VW, ROW - 4); }
+    ctx.font = (r.dir ? "700 13.5px " : "13px ") + (r.dir ? font : "ui-monospace, Consolas, monospace");
+    ctx.fillStyle = r.dir ? "#d4cee0" : v ? "#efeaf5" : "rgba(239,234,245,.45)";
+    ctx.textBaseline = "middle"; ctx.fillText(r.name, x + 8, y);
+    if (!r.dir && v) {                                                     // one bead of dew for each check that read this file
+      const w = ctx.measureText(r.name).width;
+      for (let k = 0; k < Math.min(v, 8); k++) { ctx.fillStyle = "rgba(212,206,224,.6)"; ctx.beginPath(); ctx.arc(x + 16 + w + k * 7, y, 1.8, 0, Math.PI * 2); ctx.fill(); }
+    }
+    if (mark) { ctx.fillStyle = mark === "alarm" ? "#e0474c" : "#e9b552"; ctx.beginPath(); ctx.arc(x + 2, y, 4, 0, Math.PI * 2); ctx.fill(); }
+    const fr = !r.dir && live.fresh.get(r.path);
+    if (fr && fr !== "removed") {                                          // files that triggered this automatic scan
+      const w = ctx.measureText(r.name).width + 16 + Math.min(v, 8) * 7 + 10;
+      ctx.font = "700 11px " + font; const label = fr === "added" ? "new" : "changed", lw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = "rgba(171,159,220,.22)"; ctx.beginPath(); ctx.roundRect(x + w, y - 9, lw, 18, 9); ctx.fill();
+      ctx.fillStyle = "#ddd5f7"; ctx.fillText(label, x + w + 6, y + 1);
+    }
+  }
+  drawHome();
+  drawMessage(performance.now(), true);
+  drawSpider(!!live.reading);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawMessage(performance.now(), false);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/* ---------- home: a small orb web at the top of the lane, where the spider waits between jobs ---------- */
+function goHome(withMessage){ live.mode = "home"; live.sp.tx = HOME.x; live.sp.ty = HOME.y; live.pendingMsg = !!withMessage; live.follow = true; }
+function drawHome(){
+  const R = rand(91), cx = HOME.x, cy = HOME.y, spokes = 13, rad = 56;
+  const ang = [...Array(spokes)].map((_, i) => i / spokes * TAU + (R() - .5) * .2);
+  ctx.save(); ctx.lineCap = "round";
+  // anchor lines to the top and the side of the stage
+  ctx.strokeStyle = "rgba(212,206,224,.32)"; ctx.lineWidth = .8; ctx.beginPath();
+  [[cx - 50, 0], [cx + 60, 0], [0, cy - 10], [0, cy + 40], [cx + 110, 6]].forEach(([ax, ay]) => { ctx.moveTo(cx, cy); ctx.quadraticCurveTo((cx + ax) / 2, (cy + ay) / 2 + 4, ax, ay); });
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(212,206,224,.34)"; ctx.lineWidth = .7; ctx.beginPath();
+  ang.forEach(a => { ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); }); ctx.stroke();
+  ctx.strokeStyle = "rgba(212,206,224,.26)"; ctx.lineWidth = .55; ctx.beginPath();
+  for (let r = 7; r < rad - 2; r += 4.2 + R() * 1.4) {
+    ang.forEach((a, i) => { const b = ang[(i + 1) % spokes] + (i === spokes - 1 ? TAU : 0), r1 = r + (R() - .5) * 1.4, r2 = r + (R() - .5) * 1.4;
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      ctx.quadraticCurveTo(cx + Math.cos((a + b) / 2) * r * .9, cy + Math.sin((a + b) / 2) * r * .9 + .8, cx + Math.cos(b) * r2, cy + Math.sin(b) * r2); });
+  }
+  ctx.stroke();
+  // the thread the spider climbs down from home into the project
+  ctx.strokeStyle = "rgba(212,206,224,.22)"; ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(cx, cy + rad - 4); ctx.lineTo(cx, rowY(0) - ROW / 2); ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- the finish message: the spider throws a thread for every word, catches it in a little web and hangs it up ---------- */
+function finishWords(){
+  const j = state && state.job, rep = state && state.same_project ? state.report : null;
+  if (live.replay) return "Replay finished. That run's walk is complete.".split(" ");
+  if (!j || !j.label) return [];
+  if (j.name === "scan" && rep) {
+    const A = rep.findings.filter(f => f.tier === "alarm").length, D = rep.findings.filter(f => f.tier === "attention").length;
+    const head = j.reason && j.reason.auto ? "Automatic scan done." : "Scan done.";
+    if (A) return `${head} ${A} alarm${A > 1 ? "s" : ""} need you first.`.split(" ");
+    if (D) return `${head} No alarms. ${D} thing${D > 1 ? "s" : ""} to decide.`.split(" ");
+    return `${head} No alarms. The web is quiet.`.split(" ");
+  }
+  if (j.code && j.code !== 2) return `${j.label} stopped early. See the output.`.split(" ");
+  return `${j.label} finished.`.split(" ");
+}
+function startMessage(){
+  const words = finishWords(); if (!words.length) return;
+  const narrow = VW <= 720, font = (narrow ? "700 15px " : "700 21px ") + getComputedStyle(document.body).fontFamily;
+  ctx.save(); ctx.font = font;
+  const space = ctx.measureText(" ").width;
+  // the words are laid out exactly like a sentence (normal spaces), in the empty space to the right of the tree
+  const left = narrow ? SPX + 70 : Math.max(VW * .5, 360), right = VW - 18, lineH = narrow ? 30 : 50;
+  let x = left, y = narrow ? 36 : 76; const placed = [];
+  words.forEach(w => {
+    const ww = ctx.measureText(w).width;
+    if (x + ww > right && x > left) { x = left; y += lineH; }
+    placed.push({text: w, x, y, w: ww}); x += ww + space;
+  });
+  ctx.restore();
+  live.msg = {words: placed, font, start: performance.now(), step: REDUCED ? 0 : 480};
+}
+function drawMessage(now, behind){
+  // behind = true: the threads (drawn under the spider, in the moving tree); false: the words (fixed on the stage)
+  const m = live.msg; if (!m) return;
+  const sp = live.sp;
+  m.words.forEach((w, i) => {
+    const t = m.step ? (now - m.start - i * m.step) / m.step : 1.5;       // 0..1 throw, then catch
+    if (t <= 0) return;
+    const ax = w.x + w.w / 2, ay = w.y - 26;                                // where the thread catches (screen)
+    const sx = sp.x, sy = sp.y - live.camY;                                  // the spider (screen)
+    const throwT = Math.min(1, t / .55), catchT = clamp((t - .55) / .45, 0, 1);
+    if (behind) {
+      // the thread shoots out in an arc, then sags a little once it has caught
+      ctx.save(); ctx.translate(0, live.camY);
+      const mx = (sx + ax) / 2, my = Math.min(sy, ay) - 60 + catchT * 40;
+      ctx.strokeStyle = `rgba(239,234,245,${(.55 - catchT * .25).toFixed(2)})`; ctx.lineWidth = .9; ctx.beginPath(); ctx.moveTo(sx, sy);
+      const N = 24, upto = Math.ceil(N * throwT);
+      for (let k = 1; k <= upto; k++) { const u = k / N, x = (1 - u) * (1 - u) * sx + 2 * (1 - u) * u * mx + u * u * ax, y = (1 - u) * (1 - u) * sy + 2 * (1 - u) * u * my + u * u * ay; ctx.lineTo(x, y); }
+      ctx.stroke(); ctx.restore();
+      return;
+    }
+    if (catchT <= 0) return;
+    // a tiny tuft of web where the thread caught the word
+    const pop = Math.min(1, catchT * 2.2);
+    ctx.save(); ctx.strokeStyle = "rgba(212,206,224,.4)"; ctx.lineWidth = .55; ctx.beginPath();
+    for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; ctx.moveTo(ax, ay); ctx.lineTo(ax + Math.cos(a) * 6 * pop, ay + Math.sin(a) * 6 * pop); }
+    ctx.stroke();
+    // the word drops on its short thread and swings gently until it settles - plain text, like a sentence
+    const swing = Math.sin(catchT * 9) * (1 - catchT) * .12, drop = (1 - Math.min(1, catchT * 1.6)) * -14;
+    ctx.strokeStyle = "rgba(212,206,224,.45)"; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, w.y - 14 + drop); ctx.stroke();
+    ctx.translate(ax, ay); ctx.rotate(swing); ctx.translate(-ax, -ay);
+    ctx.globalAlpha = Math.min(1, catchT * 1.8);
+    ctx.font = m.font; ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(13,10,18,.95)"; ctx.shadowBlur = 8;          // keeps the words readable over the file tree
+    ctx.fillStyle = "#efeaf5"; ctx.fillText(w.text, w.x, w.y + drop);
+    ctx.restore();
+  });
+}
+
+function stepSpider(dt){
+  // walk down the lane to the file's row, then turn to face the file and feel it with the front legs
+  const sp = live.sp, dx = sp.tx - sp.x, dy = sp.ty - sp.y, dist = Math.hypot(dx, dy);
+  sp.t += dt; sp.clk += dt;
+  let dvx = 0, dvy = 0;
+  if (dist > 520) {                                        // a long way off: drop down (or climb up) on a thread instead of running
+    sp.y = sp.ty - Math.sign(dy) * 140; sp.vx = sp.vy = 0; placeFeet();
+    live.camY = Math.max(0, sp.ty - VH * .45);
+    return stepSpider(0);
+  }
+  if (dist > 3) {
+    let v = Math.min(MAXV, dist * 4 + 30);
+    if (dist > 260) v = dist * 5;                          // far behind a fast crawler: hurry to catch up
+    dvx = dx / dist * v; dvy = dy / dist * v;
+  }
+  const k = Math.min(1, dt * 9);
+  sp.vx += (dvx - sp.vx) * k; sp.vy += (dvy - sp.vy) * k;
+  sp.x += sp.vx * dt; sp.y += sp.vy * dt;
+  const spd = Math.hypot(sp.vx, sp.vy);
+  const atHome = live.mode === "home" && dist < 4;
+  if (atHome && live.pendingMsg && Math.abs(live.camY) < 4) { live.pendingMsg = false; startMessage(); }
+  const reading = !atHome && live.mode !== "home" && spd < 40 && live.cur && live.index.get(live.cur.file) != null;
+  let th = sp.h, probe = null;
+  if (spd > 25) th = Math.atan2(sp.vy, sp.vx);
+  else if (atHome) {
+    // at home: hang head-down in the web - or turn towards the word it is throwing a thread to
+    const m = live.msg, now = performance.now();
+    const k = m && m.step ? Math.floor((now - m.start) / m.step) : -1;
+    if (m && k >= 0 && k < m.words.length) { const w = m.words[k]; probe = {x: w.x + w.w / 2, y: w.y - 26 + live.camY}; th = Math.atan2(probe.y - sp.y, probe.x - sp.x); }
+    else th = Math.PI / 2;
+  }
+  else if (reading) { const i = live.index.get(live.cur.file); probe = {x: rowX(live.rows[i]) + 2, y: rowY(i)}; th = Math.atan2(probe.y - sp.y, probe.x - sp.x); }
+  const mt = 9 * dt; sp.h += clamp(wrapA(th - sp.h), -mt, mt);
+  updateLegs(dt, probe);
+  live.reading = reading;
+}
+let lastT = performance.now();
+function frame(now){
+  const dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
+  if (!live.follow && now - live.followAt > 4000) live.follow = true;
+  playNext(now); stepSpider(dt); drawLive();
+  requestAnimationFrame(frame);
+}
+cv.addEventListener("wheel", e => { e.preventDefault(); live.follow = false; live.followAt = performance.now(); live.camY += e.deltaY; }, {passive: false});
+let drag = null;
+cv.addEventListener("pointerdown", e => { drag = {y: e.clientY, cam: live.camY}; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener("pointermove", e => { if (drag) { live.follow = false; live.followAt = performance.now(); live.camY = drag.cam - (e.clientY - drag.y); } });
+cv.addEventListener("pointerup", () => drag = null);
+
+/* =====================================================================================================
+   LIVE CHANNEL (WebSocket) - the dashboard pushes every file read, every output line and the job state
+   ===================================================================================================== */
+let ws = null, wsTries = 0, pollTimer = null, logNext = 0, evNext = 0, pollRun = null;
+function connect(){
+  try { ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(TOKEN)}`); }
+  catch (e) { fallbackPoll(); return; }
+  ws.onopen = () => { wsTries = 0; $("#conn").textContent = "live"; if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+  ws.onmessage = m => {
+    let msg; try { msg = JSON.parse(m.data); } catch (e) { return; }
+    if (msg.type === "reset") { if (msg.idle) return; if (!live.replay) resetLive("Starting…"); $("#log").textContent = ""; }
+    else if (msg.type === "trail") { if (!live.replay) onTrail(msg.events); }
+    else if (msg.type === "log") appendLog(msg.lines);
+    else if (msg.type === "job") onJob(msg);
+    else if (msg.type === "watch") onWatch(msg);
+  };
+  ws.onclose = () => { $("#conn").textContent = "reconnecting…"; ws = null; if (++wsTries > 3) fallbackPoll(); setTimeout(connect, Math.min(8000, 800 * wsTries)); };
+}
+function fallbackPoll(){
+  if (pollTimer) return;
+  $("#conn").textContent = "updating every second";
+  pollTimer = setInterval(async () => {
+    try {
+      let j = await (await fetch(`/api/job?since=${logNext}&ev=${evNext}`)).json();
+      if (pollRun === null && !j.running) { pollRun = j.run; logNext = j.next; evNext = j.ev_next; onJob(j); return; }   // an old job's trail: skip it
+      if (pollRun !== null && j.run !== pollRun) {                     // a new job: its trail and output start from the top
+        if (!live.replay) resetLive("Starting…");
+        $("#log").textContent = ""; logNext = 0; evNext = 0;
+        j = await (await fetch(`/api/job?since=0&ev=0`)).json();
+      }
+      pollRun = j.run;
+      appendLog(j.lines); logNext = j.next; evNext = j.ev_next; if (!live.replay) onTrail(j.events || []); onJob(j);
+    } catch (e) {}
+  }, 1000);
+}
+let wasRunning = false, lastRunSeen = null;
+function onWatch(w){
+  if (!w) return;
+  const box = $("#watchOn"); box.checked = !!w.on;
+  const st = $("#watchState");
+  if (!w.on) st.textContent = "Off";
+  else if (w.pending) st.textContent = `${w.pending} change${w.pending > 1 ? "s" : ""} waiting`;
+  else if (w.last) st.textContent = `Watching · last auto-scan ${new Date(w.last.at * 1000).toLocaleTimeString()} (${w.last.files.length} file${w.last.files.length > 1 ? "s" : ""})`;
+  else st.textContent = "Watching";
+}
+$("#watchOn").addEventListener("change", async e => {
+  const r = await post("/api/watch", {on: e.target.checked});
+  if (!r.ok) { toast(r.error || "That did not work."); e.target.checked = !e.target.checked; return; }
+  onWatch({on: r.on, pending: 0, last: null});
+  toast(r.on ? "Auto-scan on" : "Auto-scan off");
+});
+function onJob(j){
+  if (!state) return;
+  if (j.running && j.run !== lastRunSeen) {
+    lastRunSeen = j.run;
+    live.fresh = new Map((j.reason && j.reason.files) || []);
+    if (j.reason && j.reason.auto) {
+      const n = live.fresh.size;
+      toast(`${n} file${n > 1 ? "s" : ""} added or changed - scanning`);
+      loadTree();
+    }
+  }
+  state.job = j;
+  $("#status").classList.toggle("busy", !!j.running);
+  $("#statusText").textContent = j.running ? `Crawling: ${j.label}…` : (j.label ? `Finished: ${j.label}` : "Resting on the web");
+  document.querySelectorAll("[data-run], #undoBtn").forEach(b => b.disabled = !!j.running);
+  updateSel();
+  const when = $("#logWhen");
+  if (j.running) when.textContent = `${j.label} - running`;
+  else if (j.ended) when.textContent = `${j.label} - finished ${new Date(j.ended * 1000).toLocaleTimeString()}${j.code === 2 ? " with alarms" : j.code ? " (code " + j.code + ")" : ""}`;
+  if (wasRunning && !j.running) {
+    toast(j.reason && j.reason.auto ? (j.code === 2 ? "Automatic scan finished: alarms found" : "Automatic scan finished: no alarms") : `${j.label} finished.`);
+    load(); finishLive();
+  }
+  wasRunning = !!j.running;
+}
+function appendLog(lines){
+  if (!lines || !lines.length) return;
+  const box = $("#log"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const frag = document.createDocumentFragment();
+  lines = lines.map(l => l.replace(/[\x00-\x08\x0b-\x1f\x7f]|\x1b\[[0-9;]*m/g, ""));     // drop terminal control characters (bell, colours)
+  lines.forEach(l => frag.appendChild(el("span", /ALARM|crashed|HELD BACK|FAILED/.test(l) ? "hl-alarm" : /PASSED|FIXED|no alarms|Nothing found/.test(l) ? "hl-ok" : "", l + "\n")));
+  box.appendChild(frag);
+  while (box.childNodes.length > 4000) box.removeChild(box.firstChild);
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+/* =====================================================================================================
+   GITHUB
+   ===================================================================================================== */
+const CONCL = {success: "passed", failure: "found alarms or failed", cancelled: "cancelled", skipped: "skipped"};
+function ago(iso){ if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : (Math.round(s / 86400) === 1 ? "yesterday" : `${Math.round(s / 86400)} days ago`); }
+async function loadGitHub(){
+  let g; try { g = await (await fetch("/api/github")).json(); } catch (e) { return; }
+  const head = $("#ghHead"), ul = $("#runs"); head.textContent = ""; ul.textContent = "";
+  if (!g.ok) { head.textContent = {"no-repo": "No GitHub repository linked", "http-401": "GitHub login not accepted", "http-403": "GitHub request limit reached",
+    "http-404": "No Arachnid workflow in this repository", offline: "GitHub not reachable"}[g.why] || "GitHub not available"; return; }
+  head.append(el("span", "pill", g.repo), el("span", "", g.signed_in ? "Signed in" : "Not signed in"));
+  if (!g.runs.length) { ul.appendChild(el("li", "empty", "No runs yet")); return; }
+  g.runs.forEach(r => {
+    const li = el("li", "run " + (r.status === "completed" ? (r.conclusion || "") : r.status));
+    li.appendChild(el("span", "sd"));
+    const mid = el("div"); mid.appendChild(el("div", "t", r.title || "(no title)"));
+    const what = r.status === "completed" ? (CONCL[r.conclusion] || r.conclusion) : r.status === "queued" ? "waiting to start" : "running now";
+    mid.appendChild(el("div", "m", `${r.event === "pull_request" ? "Pull request" : r.event === "push" ? "Push" : r.event} · ${r.branch || ""} · ${r.actor || ""} · ${r.sha} · ${what} · ${ago(r.updated)}`));
+    li.appendChild(mid);
+    const acts = el("div", "acts");
+    if (r.status === "completed") { const b = el("button", "chip-btn", "Replay walk"); b.addEventListener("click", () => replayRun(r)); acts.appendChild(b); }
+    const a = el("a", "", "Open on GitHub"); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; acts.appendChild(a);
+    li.appendChild(acts);
+    if (r.jobs && r.jobs.length) {
+      const steps = el("ul", "steps");
+      r.jobs.forEach(j => j.steps.filter(s => !/^(Set up|Post |Complete|Run actions)/.test(s.name)).forEach(s => {
+        const sl = el("li", s.status + " " + (s.conclusion || "")); sl.append(el("span", "k"), el("span", "", `${j.name}: ${s.name}`)); steps.appendChild(sl);
+      }));
+      li.appendChild(steps);
+    }
+    ul.appendChild(li);
+  });
+}
+async function replayRun(r){
+  toast("Loading run…");
+  let g; try { g = await (await fetch("/api/github/replay?run=" + r.id)).json(); } catch (e) { toast("Dashboard not responding"); return; }
+  if (!g.ok) { toast(g.message); return; }
+  if (!g.events.length) { toast("No trail recorded for this run"); return; }
+  live.replay = r.id; resetLive("Replaying…");
+  $("#replayBar").hidden = false; $("#replayLabel").textContent = `Replaying GitHub run: ${r.title || r.sha} (${r.sha})`;
+  marksFromReport(g.report);
+  onTrail(g.events); finishLive();
+  $("#livePanel").scrollIntoView({behavior: REDUCED ? "auto" : "smooth", block: "start"});
+}
+$("#replayStop").addEventListener("click", () => { live.replay = null; $("#replayBar").hidden = true; resetLive(); marksFromReport(state && state.same_project ? state.report : null); });
+
+/* =====================================================================================================
+   REPORT LISTS, SUGGESTIONS, ACTIONS
+   ===================================================================================================== */
+function findingItem(f, color){
+  const li = el("li", "item"); li.dataset.fid = f.id;
+  const pip = el("span", "pip"); pip.style.background = color; li.appendChild(pip);
+  const body = el("div");
+  const w = el("div", "where", f.file + (f.line ? ":" + f.line : ""));
+  if (f.in_change === false) w.appendChild(el("span", "tag", "already in main"));
+  body.appendChild(w);
+  body.appendChild(el("p", "what", f.what));
+  if (f.why) body.appendChild(el("p", "why", f.why));
+  if (f.todo) body.appendChild(el("p", "todo", "What to do: " + f.todo));
+  if (f.notify && f.notify.length) { const who = el("div", "who"); f.notify.forEach(h => who.appendChild(el("span", f.in_change === false ? "old" : "", h))); body.appendChild(who); }
+  li.appendChild(body);
+  return li;
+}
+function expand(list){ list.querySelectorAll("li[hidden]").forEach(n => n.hidden = false); list.dataset.collapsed = "0"; const t = list.nextElementSibling; if (t && t.classList.contains("toggle")) t.remove(); }
+function fillList(id, items, color, emptyText, limit){
+  const ul = $(id); ul.textContent = "";
+  const old = ul.nextElementSibling; if (old && old.classList.contains("toggle")) old.remove();
+  if (!items.length) { ul.appendChild(el("li", "empty", emptyText)); return; }
+  items.forEach((f, i) => { const li = findingItem(f, color); if (limit && i >= limit) li.hidden = true; ul.appendChild(li); });
+  if (limit && items.length > limit) { ul.dataset.collapsed = "1"; const b = el("button", "toggle", `Show all ${items.length}`); b.addEventListener("click", () => expand(ul)); ul.after(b); }
+}
+function summary(id, items){
+  const box = $(id); box.textContent = "";
+  const c = {}; items.forEach(f => c[f.area] = (c[f.area] || 0) + 1);
+  Object.entries(c).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => box.appendChild(el("span", "", `${k}: ${v}`)));
+}
+function fillProposals(list){
+  const ul = $("#listProp"); ul.textContent = ""; selected.clear(); updateSel();
+  const mine = list.filter(p => !p.root || !state || p.root === state.root);
+  const waiting = mine.filter(p => p.status === "pending").length, approved = mine.filter(p => p.status === "approved").length;
+  $("#cProp").textContent = waiting ? `${waiting} waiting` + (approved ? `, ${approved} approved` : "") : (approved ? `${approved} approved` : "");
+  if (!mine.length) { ul.appendChild(el("li", "empty", "No suggestions")); return; }
+  const words = {pending: "waiting", approved: "approved", applied: "applied", rejected: "rejected", held: "held back"};
+  mine.forEach(p => {
+    const li = el("li", "prop");
+    const cb = el("input"); cb.type = "checkbox"; cb.disabled = !(p.status === "pending" || p.status === "held" || p.status === "approved");
+    cb.setAttribute("aria-label", "Select " + p.id);
+    cb.addEventListener("change", () => { cb.checked ? selected.add(p.id) : selected.delete(p.id); updateSel(); });
+    li.appendChild(cb);
+    const b = el("div");
+    b.appendChild(el("div", "where", `${p.file}${p.line ? ":" + p.line : ""}  ·  ${p.id}`));
+    b.appendChild(el("p", "what", p.title));
+    if (p.benefit) b.appendChild(el("p", "why", "Gain: " + p.benefit));
+    if (p.risk) b.appendChild(el("p", "why", "Risk: " + p.risk));
+    if (p.held_why) b.appendChild(el("p", "why", "Held back by the safety gate: " + p.held_why));
+    b.querySelector(".where").appendChild(el("span", "tag", p.exact ? "exact edit" : "advice only"));
+    li.appendChild(b);
+    li.appendChild(el("span", "st " + p.status, words[p.status] || p.status));
+    ul.appendChild(li);
+  });
+}
+function busy(){ return !!(state && state.job && state.job.running); }
+function updateSel(){ const n = selected.size; $("#approveSel").disabled = !n || busy(); $("#rejectSel").disabled = !n || busy();
+  $("#approveSel").textContent = n ? `Approve ${n} selected` : "Approve selected"; $("#rejectSel").textContent = n ? `Reject ${n} selected` : "Reject selected"; }
+async function decide(action){
+  const ids = [...selected];
+  const r = await post("/api/proposals", {action, ids});
+  toast(r.ok ? `${ids.length} suggestion${ids.length > 1 ? "s" : ""} ${action === "approve" ? "approved" : "rejected"}` : (r.error || r.message || "That did not work."));
+  load();
+}
+function render(s){
+  const first = !state;
+  state = s;
+  $("#projName").textContent = s.project; $("#projPath").textContent = s.root;
+  const rep = s.report, F = rep && s.same_project ? rep.findings : [];
+  const by = {}; TIERS.forEach(t => by[t.key] = F.filter(f => f.tier === t.key));
+  drawOrb(F);
+  if (!live.replay) marksFromReport(rep && s.same_project ? rep : null);
+  const lg = $("#legend"); lg.textContent = "";
+  TIERS.forEach(t => { const li = el("li"); const sw = el("span", "sw"); sw.style.background = t.color; li.append(sw, el("span", "", t.name), el("b", "", String(by[t.key].length))); lg.appendChild(li); });
+  const v = $("#verdict");
+  if (!rep || !s.same_project) v.textContent = rep ? "Results are from another folder" : "No scan yet";
+  else if (by.alarm.length) v.textContent = `${by.alarm.length} alarm${by.alarm.length > 1 ? "s" : ""}`;
+  else v.textContent = "No alarms";
+  const note = $("#staleNote");
+  if (s.state && s.state.stale && s.same_project) { note.hidden = false; note.textContent = "Results may be out of date"; }
+  else note.hidden = true;
+  $("#cAlarm").textContent = by.alarm.length || ""; $("#cDecision").textContent = by.attention.length || "";
+  $("#cHandled").textContent = by.handled.length || ""; $("#cIdeas").textContent = by.ideas.length || "";
+  fillList("#listAlarm", by.alarm, "var(--widow)", rep ? "No alarms" : "No scan yet", 25);
+  fillList("#listDecision", by.attention, "var(--dew)", rep ? "Nothing to decide" : "No scan yet", 25);
+  fillList("#listHandled", by.handled, "var(--moss)", "Nothing yet", 6);
+  fillList("#listIdeas", by.ideas, "var(--lilac)", "No ideas", 6);
+  summary("#handledSummary", by.handled); summary("#ideaSummary", by.ideas);
+  fillProposals(s.proposals || []);
+  if (first) { $("#log").textContent = ""; appendLog(s.job.lines || []); logNext = s.job.next || 0; }
+  if (s.watch) onWatch(s.watch); else { $("#watchOn").disabled = true; $("#watchState").textContent = "Not available"; }
+  onJob(s.job);
+  requestAnimationFrame(spinAll);
+}
+async function post(url, body){
+  try {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Arachnid-Token": TOKEN}, body: JSON.stringify(body)});
+    return await r.json();
+  } catch (e) { return {ok: false, error: "Dashboard not responding"}; }
+}
+async function run(cmd){
+  if (live.replay) $("#replayStop").click();
+  const r = await post("/api/run", {command: cmd});
+  if (!r.ok) { toast(r.message || r.error); return; }
+  if (cmd === "undo" || cmd === "fix" || cmd === "apply") loadTree();
+}
+document.querySelectorAll("[data-run]").forEach(b => b.addEventListener("click", () => run(b.dataset.run)));
+let undoTimer = null;
+$("#undoBtn").addEventListener("click", () => {
+  const b = $("#undoBtn");
+  if (b.classList.contains("armed")) { b.classList.remove("armed"); clearTimeout(undoTimer); b.querySelector("strong").textContent = "Undo the last change"; run("undo"); return; }
+  b.classList.add("armed"); b.querySelector("strong").textContent = "Confirm undo";
+  undoTimer = setTimeout(() => { b.classList.remove("armed"); b.querySelector("strong").textContent = "Undo the last change"; }, 4000);
+});
+$("#approveSel").addEventListener("click", () => decide("approve"));
+$("#rejectSel").addEventListener("click", () => decide("reject"));
+let toastTimer = null;
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 4500); }
+async function load(){
+  try { render(await (await fetch("/api/state")).json()); }
+  catch (e) { $("#verdict").textContent = "Dashboard not responding"; }
+}
+let resizeT = null;
+addEventListener("resize", () => { sizeCanvas(); clearTimeout(resizeT); resizeT = setTimeout(spinAll, 150); });
+sizeCanvas(); renderTools(); loadTree(); load(); connect(); requestAnimationFrame(frame);
+loadGitHub(); setInterval(() => { if (!document.hidden) loadGitHub(); }, 10000);
+</script>
+</body>
+</html>
