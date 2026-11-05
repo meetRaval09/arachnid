@@ -5,6 +5,25 @@
 It never changes how your product looks or behaves, not even by one pixel. Anything it is not sure about is left
 alone and reported to you, and anything that would change your code waits for a person to approve it.
 
+## Why use Arachnid
+
+- **Fixes you can trust.** Every fix is first made on a copy of your project. Arachnid then opens the before and
+  after versions in a real browser (at desktop and phone size) or runs your tests. If anything differs, even one
+  pixel, the fix is not applied. Other tools check that the problem is gone. Arachnid also checks that your product
+  is unchanged.
+- **No guessing.** When there is nothing to run that could prove a fix is safe, Arachnid holds the fix back for you.
+- **Nothing is lost.** Every change is backed up and can be undone byte for byte. Suggestions that change code wait
+  for a person to approve them.
+- **It catches what other tools skip.** Wording mistakes, brand spellings, duplicate pictures, folders nested by
+  accident, pages pointing to missing files, heavy pages, and memory that keeps growing, measured in a real browser.
+- **Your code stays yours.** It runs on your computer or your own GitHub runner. No outside AI, no cloud upload. Free
+  and open source (MIT).
+- **The right people hear about it.** Alarms go to the owner of that folder and to the person who changed the line.
+  Old problems never block someone else's pull request, and each alarm is sent once.
+- **Ready in minutes.** A setup page connects your repository, teams and email, and opens one pull request with
+  everything needed. Nothing reaches `main` until you merge it.
+- **You can watch it work.** The live crawl shows the spider walking to each file as it is read.
+
 ![The Arachnid dashboard](docs/screenshots/dashboard.png)
 
 ---
