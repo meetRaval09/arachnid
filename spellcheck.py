@@ -76,6 +76,7 @@ for _e in "md txt".split():
 
 # Words that are normal in code but missing from an everyday English dictionary.
 TECH_WORDS = set("""
+chiptune chiptunes synthwave lofi vaporwave 8bit 16bit
 ok okay todo fixme etc eg ie vs aka faq asap info config configs repo repos demo demos docs doc util utils
 init param params args arg func impl obj objs prev idx btn btns nav img imgs src dest tmp temp env dev prod
 vars var const enum bool int str num msg msgs err errs req res resp cb ctx ref refs props prop opts opt sync
@@ -593,14 +594,27 @@ class Engine:
         return out
 
 
-def load_custom():
+def load_custom(root=None):
+    """Words that are NOT mistakes.  Arachnid's own list (custom_words.txt) plus, for a project, its own words:
+    a file .arachnid-words.txt in the project folder, or "words": [...] in arachnid.config.json.  The project's
+    words travel with the project, so they also work in the GitHub check."""
     words = set()
-    f = HERE / "custom_words.txt"
-    if f.exists():
-        for line in f.read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip().lower()
-            if line:
-                words.add(line)
+    files = [HERE / "custom_words.txt"] + ([Path(root) / ".arachnid-words.txt"] if root else [])
+    for f in files:
+        try:
+            for line in f.read_text(encoding="utf-8-sig").splitlines():
+                line = line.split("#", 1)[0].strip().lower()
+                if line:
+                    words.add(line)
+        except OSError:
+            pass
+    if root:
+        try:
+            import json as _json
+            cfg = _json.loads((Path(root) / "arachnid.config.json").read_text(encoding="utf-8-sig"))
+            words.update(str(w).strip().lower() for w in cfg.get("words", []) if str(w).strip())
+        except (OSError, ValueError, AttributeError):
+            pass
     return words
 
 
@@ -744,7 +758,7 @@ def run_check(root, extra_allow=()):
     for s in scans:
         ident_total.update(s["idents"])
     vocab = {w for w, c in ident_total.items() if c >= 3}
-    eng = Engine(TECH_WORDS | load_custom() | vocab | set(extra_allow))
+    eng = Engine(TECH_WORDS | load_custom(root) | vocab | set(extra_allow))
 
     unknown_counts = Counter()
     unknown_files = defaultdict(set)
