@@ -271,6 +271,11 @@ class Esbuild:
 
     @staticmethod
     def _find(root):
+        # A ready-made esbuild named by ARACHNID_ESBUILD_DIR (the Docker image ships one) comes first: a project's own
+        # node_modules may hold an esbuild built for another system (e.g. Windows files read inside Linux Docker).
+        pre = os.environ.get("ARACHNID_ESBUILD_DIR")
+        if pre and (Path(pre) / "node_modules" / "esbuild" / "package.json").exists():
+            return Path(pre)
         todo = [(root, 0)]
         while todo:
             d, depth = todo.pop(0)

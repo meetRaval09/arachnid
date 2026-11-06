@@ -501,7 +501,7 @@ def make_handler(root, token, job, gh, watcher=None, setup=None):
                     rep = report.build(root) if (HERE / "reports" / "ledger.jsonl").exists() else None
                 except Exception as e:          # a broken ledger must not take the dashboard down
                     rep, st["report_error"] = None, str(e)[:200]
-                return self._send(200, {"root": str(root), "project": Path(root).name, "report": rep, "proposals": proposals(),
+                return self._send(200, {"root": str(root), "project": os.environ.get("ARACHNID_PROJECT_NAME") or Path(root).name, "report": rep, "proposals": proposals(),
                                         "job": job.snapshot(0), "state": st,
                                         "same_project": st.get("root") in (None, str(root)),
                                         "commands": {k: v[2] for k, v in COMMANDS.items()},
@@ -680,6 +680,8 @@ def main():
     ap.add_argument("root", nargs="?", default=".")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--host", default="127.0.0.1", help="address to listen on (Docker uses 0.0.0.0 inside the container; "
+                                                          "the port is still published to this computer only)")
     ap.add_argument("--no-watch", action="store_true", help="do not scan by itself when files are added or changed")
     ap.add_argument("--repo", default=None, help="GitHub repository (owner/name) whose Arachnid runs to show; found from 'origin' if left out")
     a = ap.parse_args()
@@ -695,13 +697,13 @@ def main():
     srv = None
     for port in range(a.port, a.port + 20):
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(root, token, job, gh, watcher, setup))
+            srv = ThreadingHTTPServer((a.host, port), make_handler(root, token, job, gh, watcher, setup))
             break
         except OSError:
             continue
     if srv is None:
         sys.exit("Could not find a free port near %d." % a.port)
-    url = "http://127.0.0.1:%d/" % srv.server_address[1]
+    url = "http://127.0.0.1:%d/" % srv.server_address[1]      # (inside Docker too: that is the address on YOUR computer)
     print("Arachnid dashboard for %s\n  open: %s\n  (only this computer can open it; press Ctrl+C here to stop)" % (root, url), flush=True)
     if not a.no_watch:
         print("  watching for new and changed files - each time, a scan starts by itself (scans only read)", flush=True)

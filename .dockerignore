@@ -1,0 +1,11 @@
+.git
+.github
+**/__pycache__
+**/*.pyc
+reports/*
+!reports/.gitkeep
+backups
+docs/screenshots
+node_modules
+.venv
+venv

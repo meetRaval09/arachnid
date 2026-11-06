@@ -63,7 +63,8 @@ def fix(root, gate_spelling, webhook=None, with_triage=True):
     run("textcheck.py", root, "--fix")
     run("terms.py", root, "--fix")
     run("links.py", root)
-    print("\nDone. To put the last change back:  python arachnid.py undo   (repeat to go further back)")
+    print("\nDone. To put the last change back:  %s undo   (repeat to go further back)"
+          % ("arachnid" if os.environ.get("ARACHNID_IN_DOCKER") else "python arachnid.py"))
     if not with_triage:
         return 0
     return run("triage.py", *(["--webhook", webhook] if webhook else []))
@@ -215,7 +216,7 @@ def selftest():
         try:
             if saved_reports.exists():
                 shutil.rmtree(reports, ignore_errors=True)
-                shutil.copytree(saved_reports, reports)
+                shutil.copytree(saved_reports, reports, dirs_exist_ok=True)   # (reports may be a Docker volume that cannot be removed)
             elif reports.exists():
                 shutil.rmtree(reports, ignore_errors=True)
                 reports.mkdir()

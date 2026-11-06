@@ -60,7 +60,7 @@ def build(root="."):
     sha = os.environ.get("ARACHNID_SHA") or os.environ.get("GITHUB_SHA") or routing._git(root, "rev-parse", "HEAD").strip()
     rep = {"format": "arachnid-report", "version": FORMAT_VERSION,
            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "project": os.environ.get("GITHUB_REPOSITORY") or root.name, "commit": sha or "",
+           "project": os.environ.get("GITHUB_REPOSITORY") or os.environ.get("ARACHNID_PROJECT_NAME") or root.name, "commit": sha or "",
            "branch": os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or routing._git(root, "rev-parse", "--abbrev-ref", "HEAD").strip(),
            "event": os.environ.get("GITHUB_EVENT_NAME", "local"), "codeowners": router.codeowners_file,
            "counts": {t: sum(1 for f in findings if f["tier"] == t) for t, *_ in TIERS}, "findings": findings}

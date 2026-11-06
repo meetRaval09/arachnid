@@ -41,7 +41,33 @@ alone and reported to you, and anything that would change your code waits for a 
 It works on any language. Python, JavaScript/TypeScript, HTML/CSS, JSON and Markdown get the deepest checks, and the
 dependency files of npm, pip, Maven, Gradle, Go, Cargo, Composer, Bundler, NuGet, pub and SwiftPM are understood too.
 
-## Quick start
+## Quick start with Docker (easiest)
+
+You need only **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**. Python, the browser for the
+safety gate and everything else are inside the box. Download [`arachnid.cmd`](arachnid.cmd) (Windows) or
+[`arachnid.sh`](arachnid.sh) (Mac, Linux), then:
+
+```bash
+arachnid scan      "C:\path\to\your\project"   # look only - changes nothing
+arachnid fix       "C:\path\to\your\project"   # fix what is provably safe (backed up first)
+arachnid undo      "C:\path\to\your\project"   # put the last fix back
+arachnid dashboard "C:\path\to\your\project"   # then open http://127.0.0.1:8765
+arachnid update                                # get the newest Arachnid
+```
+
+On Mac and Linux it is `./arachnid.sh scan ~/code/my-project`. Leave the folder out to use the folder you are in.
+
+Without the helper, the same thing is one Docker command:
+
+```bash
+docker run --rm -it -v "C:\path\to\your\project:/project" ghcr.io/meetraval09/arachnid scan
+```
+
+Your project never leaves your computer: Docker only lends the folder to Arachnid. The dashboard is reachable from
+your computer only. Results and undo backups are kept in a Docker volume per project, so `undo` still works the next
+day.
+
+## Quick start with Python
 
 You need **Python 3.10 or newer**.
 
@@ -128,6 +154,8 @@ python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files,
 ```
 
 The same tests run on every push (`.github/workflows/tests.yml`, a copy is in `github/tests.yml`).
+The Docker image is built, tested (the same self-test and accuracy test, inside the image) and published by
+`.github/workflows/docker.yml` (a copy is in `github/docker.yml`).
 
 ## Learn more
 
