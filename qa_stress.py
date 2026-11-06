@@ -281,12 +281,14 @@ def product_same(a_root, b_root):
         proven = gate.proven_same_program(str(b_root), items)
         broken_before = set()
         try:      # a file that could not even be read before is a REPAIR, not a refactor - the browser check below judges it
-            from syntaxcheck import Esbuild, ESBUILD_LOADER
-            es = Esbuild(str(b_root))
-            if es.ok:
-                rest = [(r, o) for r, o, _ in items if r not in proven]
-                outs = es.minified([(r + ":old", o, "css" if r.endswith(".css") else ESBUILD_LOADER.get(r.rsplit(".", 1)[-1], "jsx")) for r, o in rest])
-                broken_before = {r for (r, _), m in zip(rest, outs) if m is None}
+            # Asked through syntaxcheck's own reader, the same one that found the error: esbuild when the project has it,
+            # otherwise Node (GitHub's machines have Node but no esbuild).
+            from syntaxcheck import Oracle
+            oracle = Oracle(str(b_root))
+            for r, o, _ in items:
+                ext = r.rsplit(".", 1)[-1].lower()
+                if r not in proven and oracle.can(ext) and oracle.first_errors([o], ext)[0] is not None:
+                    broken_before.add(r)
         except Exception:
             pass
         unproven = [r for r, _, _ in items if r not in proven and r not in broken_before]
