@@ -483,6 +483,11 @@ def main():
     print("QA SUMMARY: %d bug(s), %d slow/warning note(s)" % (len(bugs), len(RESULTS) - len(bugs)))
     for r_, lvl, t in RESULTS:
         print("  round %d [%s] %s" % (r_, lvl, t.split("\n")[0][:160]))
+    if os.environ.get("GITHUB_ACTIONS") == "true":     # on GitHub: each bug also becomes a note on the run's page
+        for r_, lvl, t in bugs:
+            ls = t.strip().splitlines()
+            body = "\n".join(ls[:1] + (["..."] if len(ls) > 12 else []) + ls[1:][-11:])[:1800]
+            print("::error title=Stress round %d::%s" % (r_, body.replace("%", "%25").replace("\r", "").replace("\n", "%0A")))
     return 1 if bugs else 0
 
 
