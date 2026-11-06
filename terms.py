@@ -31,6 +31,7 @@ glossary.txt (optional, next to this file) - teach it your own terms:
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -535,6 +536,10 @@ def fix(root, hits, texts):
             disk = fh.read()
         if disk != old:
             continue                                         # changed while we were working: do not touch it
+        if not os.access(path, os.W_OK):                     # read-only: left exactly as it is (permissions never changed)
+            for h in hs:
+                held[id(h)] = "the file is read-only"
+            continue
         dest = bdir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)

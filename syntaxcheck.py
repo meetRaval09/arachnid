@@ -908,6 +908,9 @@ def apply_syntax_fixes(root, result, preview, verify_cmd=None, allow_build=True)
     if not preview and fixed:
         log = []
         for rel, steps, old, new in fixed:
+            if not os.access(root / rel, os.W_OK):     # read-only: left exactly as it is (permissions never changed)
+                print("   SKIPPED %s - the file is read-only, so it is left as it is" % rel)
+                continue
             dest = bdir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / rel, dest)

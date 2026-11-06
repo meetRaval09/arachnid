@@ -912,6 +912,9 @@ def apply_fixes(root, findings, level, gate=False):
             applied.append(f)
         if new == orig:
             continue
+        if not os.access(path, os.W_OK):           # read-only: left exactly as it is (permissions never changed)
+            print("   SKIPPED %s - the file is read-only, so it is left as it is" % rel)
+            continue
         dest = bdir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, dest)

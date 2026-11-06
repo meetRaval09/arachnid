@@ -29,6 +29,7 @@ What it changes
 import argparse
 import bisect
 import json
+import os
 import re
 import shutil
 import sys
@@ -427,6 +428,9 @@ def fix_files(root, findings):
     changed, log = [], []
     for rel, items in by_file.items():
         path = root / rel
+        if not os.access(path, os.W_OK):           # read-only: left exactly as it is (permissions never changed)
+            print("   SKIPPED %s - the file is read-only, so it is left as it is" % rel)
+            continue
         with open(path, encoding="utf-8", newline="") as fh:
             text = fh.read()
         crlf = "\r\n" in text

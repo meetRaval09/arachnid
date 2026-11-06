@@ -465,9 +465,16 @@ def main():
     bdir.mkdir(parents=True, exist_ok=True)
     total = {"root": str(root), "moved": [], "created": [], "restored": [], "edited": []}
     for p in ready:
+        locked = sorted({e["file"] for e in p["edits"] if not os.access(root / e["file"], os.W_OK)})
+        if locked:                                 # all-or-nothing: a read-only page means this folder is left alone
+            print("SKIPPED %s - these files would need new paths but are read-only: %s" % (p["inner"], ", ".join(locked[:5])))
+            continue
         m = apply_plan(root, p, bdir)
         for k in ("moved", "created", "restored", "edited"):
             total[k] += m[k]
+    if not total["moved"]:                         # everything was skipped: leave no empty undo step behind
+        shutil.rmtree(bdir, ignore_errors=True)
+        return 0
     (bdir / "clones-manifest.json").write_text(json.dumps(total, indent=2), encoding="utf-8")
     print(f"\nDone. Backup (the nested folder was MOVED here, not deleted): {bdir}\nTo put everything back:  python clones.py --undo")
     return 0

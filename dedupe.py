@@ -766,6 +766,10 @@ def main():
             print("The build FAILED with the merge applied, so nothing was changed.\n" + tail)
             return 1
         print("Build passed.")
+    locked = [f for f in new_texts if not os.access(project.root / f, os.W_OK)]
+    if locked:                                     # a merge is all-or-nothing: one read-only page means no merge
+        print("Nothing was changed: these files would need new paths but are read-only: %s" % ", ".join(locked[:5]))
+        return 0
     bdir = HERE / "backups" / (datetime.now().strftime("%Y%m%d-%H%M%S") + "-dedupe")
     man = do_apply(project.root, merge, new_texts, bdir)
     (bdir / "dedupe-manifest.json").write_text(json.dumps(man, indent=2), encoding="utf-8")

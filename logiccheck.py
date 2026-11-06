@@ -32,6 +32,7 @@ import argparse
 import ast
 import builtins
 import json
+import os
 import re
 import shutil
 import sys
@@ -997,6 +998,9 @@ def apply_fixes(res, level, accept_analysis=False):
     bdir = HERE / "backups" / stamp
     log, changed = [], []
     for rel in passed:
+        if not os.access(root / rel, os.W_OK):     # read-only: left exactly as it is (permissions never changed)
+            print("   SKIPPED %s - the file is read-only, so it is left as it is" % rel)
+            continue
         dest = bdir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / rel, dest)
