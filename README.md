@@ -41,11 +41,60 @@ alone and reported to you, and anything that would change your code waits for a 
 It works on any language. Python, JavaScript/TypeScript, HTML/CSS, JSON and Markdown get the deepest checks, and the
 dependency files of npm, pip, Maven, Gradle, Go, Cargo, Composer, Bundler, NuGet, pub and SwiftPM are understood too.
 
-## Quick start with Docker (easiest)
+## Get started
 
-You need only **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**. Python, the browser for the
-safety gate and everything else are inside the box. Download [`arachnid.cmd`](arachnid.cmd) (Windows) or
-[`arachnid.sh`](arachnid.sh) (Mac, Linux), then:
+There are three ways to use Arachnid. Pick the one that fits you; they can be combined.
+
+| | What it is | You need |
+|---|---|---|
+| **A. On GitHub** | A guard that checks every pull request by itself | Only a GitHub repository |
+| **B. On your computer (Docker)** | Scan, fix, undo and the dashboard, without installing Python | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
+| **C. On your computer (Python)** | The same as B, run straight from the source code | Python 3.10 or newer |
+
+### A. On GitHub (about 5 minutes, nothing to install)
+
+1. **Check your branch name.** Open your repository on github.com. The branch button near the top left should say
+   **main**. (If it says **master**, change the three words `main` under `on:` in the file below to `master`.)
+2. **Copy the Arachnid file.** Open [`github/arachnid.yml`](github/arachnid.yml) and click **Copy raw file**
+   (the two-squares icon, top right of the file).
+3. **Go to YOUR project's repository** (the one you want checked, not this one). Click **Add file → Create new file**.
+4. **Name the file.** In the small **"Name your file..."** box at the top (not the big box), type
+   `.github/workflows/arachnid.yml`. Each `/` creates a folder.
+5. **Paste.** Click inside the big empty box and press **Ctrl + V**.
+6. **Save it as a pull request.** Click **Commit changes... → Create a new branch for this commit and start a pull
+   request → Propose changes → Create pull request**.
+7. **Watch it run.** At the bottom of the pull request, the **Arachnid check** runs for 2 to 5 minutes. When it turns
+   green, Arachnid has written a comment listing what it found.
+8. **Merge.** Click **Merge pull request → Confirm merge**. From now on every pull request is checked automatically.
+9. *(Optional)* To let Arachnid offer safe fixes as a pull request: **Settings → Actions → General → Workflow
+   permissions →** tick **Allow GitHub Actions to create and approve pull requests → Save**.
+
+Working in a team? The **Setup page** (part of the dashboard, see B or C) does all of this for you **and** sets up
+folder owners, team e-mails and rules, in one pull request.
+
+### B. On your computer with Docker (no Python needed)
+
+1. **Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)**, open it, and wait until it says
+   **Engine running**.
+2. **Have your project on your computer.** If it is only on GitHub: on its page click **Code → Download ZIP** and
+   unzip it (or `git clone` it).
+3. **Open a terminal.** On Windows: press the Windows key, type `cmd`, press Enter. On Mac: open **Terminal**.
+4. **Run one of these**, with the path changed to your project folder. The first run downloads Arachnid (a few
+   minutes); after that it starts in seconds.
+
+   Look only (changes nothing):
+   ```bash
+   docker run --rm -it -v "C:\path\to\your\project:/project" ghcr.io/meetraval09/arachnid scan
+   ```
+   Open the dashboard (and the Setup page):
+   ```bash
+   docker run --rm -it -p 127.0.0.1:8765:8765 -v "C:\path\to\your\project:/project" ghcr.io/meetraval09/arachnid dashboard
+   ```
+   then open **http://127.0.0.1:8765** in your browser. Press **Ctrl + C** in the terminal to stop it.
+
+**Shorter commands (recommended if you also want fix and undo).** Download [`arachnid.cmd`](arachnid.cmd) (Windows)
+or [`arachnid.sh`](arachnid.sh) (Mac, Linux): open the file, click **Download raw file**, and put it in a folder you
+can find. Then, in a terminal opened in that folder:
 
 ```bash
 arachnid scan      "C:\path\to\your\project"   # look only - changes nothing
@@ -55,33 +104,30 @@ arachnid dashboard "C:\path\to\your\project"   # then open http://127.0.0.1:8765
 arachnid update                                # get the newest Arachnid
 ```
 
-On Mac and Linux it is `./arachnid.sh scan ~/code/my-project`. Leave the folder out to use the folder you are in.
+On Mac and Linux it is `./arachnid.sh scan ~/code/my-project`. The helper keeps each project's results and undo
+backups between runs, so `undo` still works the next day.
 
-Without the helper, the same thing is one Docker command:
+Your project never leaves your computer: Docker only lends the folder to Arachnid, and the dashboard can only be
+opened from your own computer. On the Setup page, sign in with **Use a token** (the page links to where GitHub
+creates one).
 
-```bash
-docker run --rm -it -v "C:\path\to\your\project:/project" ghcr.io/meetraval09/arachnid scan
-```
+### C. On your computer with Python
 
-Your project never leaves your computer: Docker only lends the folder to Arachnid. The dashboard is reachable from
-your computer only. Results and undo backups are kept in a Docker volume per project, so `undo` still works the next
-day.
-
-## Quick start with Python
-
-You need **Python 3.10 or newer**.
-
-```bash
-git clone https://github.com/meetRaval09/arachnid.git
-cd arachnid
-
-# optional, but recommended: the safety gate and the browser checks
-pip install -r requirements.txt
-python -m playwright install chromium
-
-# open the dashboard for your project
-python dashboard.py "C:\path\to\your\project"
-```
+1. **Install Python 3.10 or newer** from [python.org](https://www.python.org/downloads/) (on Windows, tick
+   **Add python.exe to PATH** in the installer).
+2. **Get Arachnid and its optional extras** (in a terminal):
+   ```bash
+   git clone https://github.com/meetRaval09/arachnid.git
+   cd arachnid
+   pip install -r requirements.txt
+   python -m playwright install chromium
+   ```
+   (No git? On this page click **Code → Download ZIP**, unzip it, and open the terminal inside that folder.)
+3. **Open the dashboard** for your project:
+   ```bash
+   python dashboard.py "C:\path\to\your\project"
+   ```
+   It opens in your browser by itself. Press **Ctrl + C** in the terminal to stop it.
 
 Or use it straight from the command line:
 
@@ -94,7 +140,7 @@ python arachnid.py selftest                           # prove the whole chain wo
 
 ## The dashboard
 
-`python dashboard.py <project>` opens a control room in your browser. It runs only on your computer, at
+The dashboard (`arachnid dashboard`, or `python dashboard.py <project>`) is a control room in your browser. It runs only on your computer, at
 `http://127.0.0.1:8765`.
 
 - **Send the crawler out:** Scan, Fix what is safe, Undo, and the extra checks (outside connections, page weight,
@@ -123,8 +169,8 @@ A five-step page that connects a repository and writes everything a team needs:
 
 ## On GitHub, automatically
 
-Copy [`github/arachnid.yml`](github/arachnid.yml) to `.github/workflows/arachnid.yml` in your project, or let the setup
-page do it.
+Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/workflows/arachnid.yml` (step by step:
+[Get started, A](#a-on-github-about-5-minutes-nothing-to-install)), or let the Setup page do it.
 
 - **Pull request into main:** Arachnid checks the change first and writes one comment. A critical problem in a file
   that pull request changes turns the check red. Problems that were already in main are listed, but they do not block
