@@ -46,7 +46,7 @@ concurrency:                    # one Arachnid run per branch at a time; a newer
   cancel-in-progress: true
 
 env:
-  ARACHNID_REPO: YOUR-GITHUB-NAME/arachnid   # where to download Arachnid from, used only if it is not inside this repository
+  ARACHNID_REPO: meetRaval09/arachnid   # where to download Arachnid from (the official home), used only if it is not inside this repository
   ARACHNID_REF: main
   PYTHONUTF8: "1"
   ARACHNID_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

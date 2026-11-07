@@ -72,7 +72,7 @@ day.
 You need **Python 3.10 or newer**.
 
 ```bash
-git clone https://github.com/YOUR-GITHUB-NAME/arachnid.git
+git clone https://github.com/meetRaval09/arachnid.git
 cd arachnid
 
 # optional, but recommended: the safety gate and the browser checks

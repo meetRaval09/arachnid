@@ -18,6 +18,7 @@ What is kept where
 """
 import base64
 import json
+import re
 import os
 import smtplib
 import ssl
@@ -249,9 +250,11 @@ class Setup:
             wf = wf.replace("  push:\n    branches: [main]", "  push:\n    branches: [%s]" % default)
             wf = wf.replace("github.ref == 'refs/heads/main'", "github.ref == 'refs/heads/%s'" % default)
             wf = wf.replace("--base main", "--base %s" % default)
-        tool_repo = plan.get("arachnid_repo")
-        if tool_repo:
-            wf = wf.replace("ARACHNID_REPO: YOUR-GITHUB-NAME/arachnid", "ARACHNID_REPO: %s" % tool_repo)
+        tool_repo = (plan.get("arachnid_repo") or "").strip().strip("/")
+        if tool_repo.startswith("https://github.com/"):
+            tool_repo = tool_repo[len("https://github.com/"):].removesuffix(".git")
+        if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", tool_repo or ""):        # empty or odd -> keep the official home
+            wf = re.sub(r"ARACHNID_REPO: \S+", "ARACHNID_REPO: %s" % tool_repo, wf, count=1)
         lines = ["# Who owns which part of the code - written by the Arachnid setup page.",
                  "# The LAST line that matches a file wins (GitHub's rule)."]
         if plan.get("default_owner"):
