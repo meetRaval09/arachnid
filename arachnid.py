@@ -41,7 +41,7 @@ def run(tool, *args):
 
 def scan(root, webhook=None):
     steps = [("crawler.py", [root]), ("spellcheck.py", [root]), ("syntaxcheck.py", [root, "--fix", "--preview"]),
-             ("logiccheck.py", [root]), ("textcheck.py", [root]), ("terms.py", [root]), ("netcheck.py", [root]), ("bundlesize.py", [root]), ("advisor.py", [root]), ("links.py", [root]), ("dedupe.py", [root]), ("clones.py", [root]), ("insights.py", [root])]
+             ("logiccheck.py", [root]), ("moneycheck.py", [root]), ("textcheck.py", [root]), ("terms.py", [root]), ("netcheck.py", [root]), ("bundlesize.py", [root]), ("advisor.py", [root]), ("links.py", [root]), ("dedupe.py", [root]), ("clones.py", [root]), ("insights.py", [root])]
     codes = {}
     for tool, args in steps:
         if not (HERE / tool).exists():

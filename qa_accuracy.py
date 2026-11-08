@@ -41,7 +41,10 @@ def build(d):
     w(d / "api.py", "import requests\n\n\ndef pull():\n"
                     "    return requests.get('https://api.example.com/v1/items?api_key=sk_live_51HxQabcdefghijklmnop', verify=False)\n")
     w(d / "rules.py", "ALLOWED = ['red', 'green', 'blue', 'black', 'white']\n\n\ndef ok(c):\n    return c in ALLOWED\n")
+    w(d / "shop.py", "def checkout(cart):\n    total = sum(i['price'] for i in cart)\n    return gateway.charge(amount=total)\n")
     # ---- decoys: look suspicious, are actually fine -------------------------------------------------------------
+    w(d / "shop_ok.py", "def checkout(cart):\n    total = sum(i['price'] for i in cart)\n    if total <= 0:\n        return None\n"
+                        "    return gateway.charge(amount=total)\n\n\ndef history(user):\n    return get_payment_history(user)\n")
     w(d / "docs/clean.md", "# Clean\n\nWe receive the data. The variable is called `recieve_buf` in code:\n\n```\nteh = 1\n```\n\nSee GitHub.\n")
     w(d / "good.py", "import os\n\n\ndef here():\n    return os.getcwd()\n")
     w(d / "good.js", "export const add = (a, b) => a + b;\n")
@@ -73,8 +76,9 @@ PLANTED = [
     ("TLS check switched off", "api.py", {"net"}, ["verify", "tls", "certificate", "ssl"]),
     ("request without timeout", "api.py", {"net", "advisor"}, ["timeout"]),
     ("constant list used for lookups", "rules.py", {"advisor"}, ["set"]),
+    ("payment without an amount check", "shop.py", {"money"}, ["above 0"]),
 ]
-DECOYS = ["docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
+DECOYS = ["shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
 IGNORE_KINDS_ON_DECOYS = {"unused-file"}          # "nothing links to this file" ideas are true for a practice project
 
 

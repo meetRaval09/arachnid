@@ -18,7 +18,7 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Self-test (fix, safety gate, alarms, approvals, undo)
         run: python arachnid.py selftest
-      - name: Accuracy test (15 planted problems, 7 clean look-alikes)
+      - name: Accuracy test (16 planted problems, 9 clean look-alikes)
         run: python qa_accuracy.py
       - name: Stress test (15 kinds of projects)
         run: python qa_stress.py

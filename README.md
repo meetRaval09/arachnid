@@ -14,7 +14,7 @@ alone and reported to you, and anything that would change your code waits for a 
 - **No guessing.** When there is nothing to run that could prove a fix is safe, Arachnid holds the fix back for you.
 - **Nothing is lost.** Every change is backed up and can be undone byte for byte. Suggestions that change code wait
   for a person to approve them.
-- **It catches what other tools skip.** Wording mistakes, brand spellings, duplicate pictures, folders nested by
+- **It catches what other tools skip.** Payments that never check the amount is above 0, wording mistakes, brand spellings, duplicate pictures, folders nested by
   accident, pages pointing to missing files, heavy pages, and memory that keeps growing, measured in a real browser.
 - **Your code stays yours.** It runs on your computer or your own GitHub runner. No outside AI, no cloud upload. Free
   and open source (MIT).
@@ -32,7 +32,7 @@ alone and reported to you, and anything that would change your code waits for a 
 
 | | |
 |---|---|
-| **Finds** | broken code, unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
+| **Finds** | broken code, unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
 | **Fixes** | only what passes the **safety gate**: your project is copied, the change is made on the copy, and a real browser (or your own tests) compares before and after. Any difference means the change is held back. |
 | **Asks** | before anything that is a judgement call. Lighter or faster code is offered as a suggestion that waits for your approval. |
 | **Reports** | everything in one standard report, sorted as 🔴 alarms → 🟠 decisions → ✅ handled → 💡 ideas. Each item goes to the right person: the owner of that folder and whoever changed it. |
@@ -54,7 +54,9 @@ There are three ways to use Arachnid. Pick the one that fits you; they can be co
 ### A. On GitHub (about 5 minutes, nothing to install)
 
 1. **Check your branch name.** Open your repository on github.com. The branch button near the top left should say
-   **main**. (If it says **master**, change the three words `main` under `on:` in the file below to `master`.)
+   **main**. If it says **master**, then after pasting in step 5 change these four places to `master`:
+   `branches: [main]` (twice), `refs/heads/main` and `--base main`. Leave `ARACHNID_REF: main` as it is (that is
+   Arachnid's own branch). The Setup page does this for you automatically.
 2. **Copy the Arachnid file.** Open [`github/arachnid.yml`](github/arachnid.yml) and click **Copy raw file**
    (the two-squares icon, top right of the file).
 3. **Go to YOUR project's repository** (the one you want checked, not this one). Click **Add file → Create new file**.
@@ -195,7 +197,7 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 
 ```bash
 python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
-python qa_accuracy.py         # 15 planted problems must be found, 7 clean look-alikes must stay quiet
+python qa_accuracy.py         # 16 planted problems must be found, 9 clean look-alikes must stay quiet
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 
