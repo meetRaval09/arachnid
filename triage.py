@@ -30,7 +30,7 @@ import ledger  # noqa: E402
 SEV = {"critical": 0, "warning": 1, "info": 2}
 KIND_WORDS = {
     "syntax": "syntax errors", "logic": "unused code / ambiguity", "spelling": "spelling mistakes", "dedupe": "duplicate files",
-    "clones": "nested folders", "links": "missing files", "text": "meaning breakers", "terms": "terminology", "net": "external connections", "bundle": "page weight", "leak": "memory growth (measured)", "advisor": "efficiency ideas awaiting approval", "insights": "suggestions", "money": "money safety", "bugs": "hidden bugs",
+    "clones": "nested folders", "links": "missing files", "text": "meaning breakers", "terms": "terminology", "net": "external connections", "bundle": "page weight", "leak": "memory growth (measured)", "advisor": "efficiency ideas awaiting approval", "insights": "suggestions", "money": "money safety", "bugs": "hidden bugs", "security": "security", "vulns": "known security holes",
 }
 
 

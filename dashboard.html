@@ -311,7 +311,7 @@ const TIERS = [
   {key:"ideas", name:"Ideas", color:"var(--lilac)", hex:"#ab9fdc", r:[168, 192]},
 ];
 const TOOL_WORDS = {
-  arachnid:"Getting ready", crawler:"Mapping the folders", spellcheck:"Spelling", syntaxcheck:"Code grammar", logiccheck:"Unused code", moneycheck:"Money safety", bugcheck:"Hidden bugs",
+  arachnid:"Getting ready", crawler:"Mapping the folders", spellcheck:"Spelling", syntaxcheck:"Code grammar", logiccheck:"Unused code", moneycheck:"Money safety", bugcheck:"Hidden bugs", seccheck:"Security", vulncheck:"Known security holes",
   textcheck:"Meaning breakers", terms:"Terminology", netcheck:"Outside connections", bundlesize:"Page weight", advisor:"Lighter code",
   links:"Missing files", dedupe:"Duplicate files", clones:"Nested folders", insights:"Dead code and ideas", triage:"Sorting the results",
   leakcheck:"Memory growth", proposals:"Suggestions", pixelcheck:"Safety gate", gate:"Safety gate", ci_summary:"Writing the report", notify:"E-mails",
@@ -569,7 +569,7 @@ function renderTools(){
 
 }
 // the checks a scan runs, in order - so the bar can show how far the WHOLE job is, not just the current check
-const SCAN_STEPS = ["crawler", "spellcheck", "syntaxcheck", "logiccheck", "moneycheck", "bugcheck", "textcheck", "terms", "netcheck", "bundlesize", "advisor", "links", "dedupe", "clones", "insights", "triage"];
+const SCAN_STEPS = ["crawler", "spellcheck", "syntaxcheck", "logiccheck", "moneycheck", "bugcheck", "seccheck", "vulncheck", "textcheck", "terms", "netcheck", "bundlesize", "advisor", "links", "dedupe", "clones", "insights", "triage"];
 function jobProgress(){
   const j = state && state.job, steps = j && j.name === "scan" ? SCAN_STEPS : [...live.tools.keys()].filter(k => k !== "arachnid");
   if (!steps.length || !live.cur) return 0;

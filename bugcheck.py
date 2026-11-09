@@ -1378,11 +1378,12 @@ def check(root):
                 found += check_json(rel, text, project.root, files)
             elif ext in ("md", "markdown"):
                 found += check_md(rel, text, files, slugs_of)
-        except (RecursionError, ValueError):
+        except Exception as e:                      # one odd file must never stop the whole check
+            print("  (skipped %s: %s)" % (rel, type(e).__name__))
             continue
     try:
         found += check_project(texts, pages)
-    except (RecursionError, ValueError):
+    except Exception:
         pass
     uniq, seen = [], set()
     for f in sorted(found, key=lambda f: (f["file"], f["line"], f["kind"])):

@@ -18,7 +18,16 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Self-test (fix, safety gate, alarms, approvals, undo)
         run: python arachnid.py selftest
-      - name: Accuracy test (20 planted problems, 13 clean look-alikes)
+      - name: Accuracy test (24 planted problems, 17 clean look-alikes)
         run: python qa_accuracy.py
+      - name: Known security holes (live check against the OSV database)
+        run: |
+          mkdir -p /tmp/vuln
+          printf '{"name":"t","dependencies":{"lodash":"4.17.15"}}' > /tmp/vuln/package.json
+          printf 'requests==2.19.1\nflask==3.0.3\n' > /tmp/vuln/requirements.txt
+          python vulncheck.py /tmp/vuln | tee /tmp/vuln.txt
+          grep -q "lodash 4.17.15 has" /tmp/vuln.txt
+          grep -q "requests 2.19.1 has" /tmp/vuln.txt
+          grep -q "update lodash to" /tmp/vuln.txt
       - name: Stress test (15 kinds of projects)
         run: python qa_stress.py

@@ -46,7 +46,17 @@ def build(d):
     w(d / "web/cart.js", "export function total(items) {\n  return\n    items.length;\n}\n")
     w(d / "web/theme.css", ".card { colr: #333; }\n")
     w(d / "docs/links.md", "# Links\n\nRead the [setup guide](setup.md).\n")
+    w(d / "server/users.py", "from flask import request\n\n\ndef find(db):\n    name = request.args.get('name')\n"
+                             "    return db.execute(f\"SELECT * FROM users WHERE name = '{name}'\")\n")
+    w(d / "web/comments.js", "export function show(el, comment) {\n  el.innerHTML = comment;\n}\n")
+    w(d / "server/keys.py", "AWS_KEY = '%s'\n" % ("AKIA" + "2JQ7R4XKBM6PLN3T"))      # built here, so this file holds no key
+    w(d / "server/routes.js", "const app = require('express')();\napp.delete('/orders/:id', async (req, res) => {\n  await Order.deleteOne({ _id: req.params.id });\n  res.end();\n});\n")
     # ---- decoys: look suspicious, are actually fine -------------------------------------------------------------
+    w(d / "server/users_ok.py", "from flask import request\n\n\ndef find(db):\n    name = request.args.get('name')\n"
+                                "    return db.execute('SELECT * FROM users WHERE name = ?', (name,))\n")
+    w(d / "web/comments_ok.js", "export function show(el, comment) {\n  el.textContent = comment;\n}\n")
+    w(d / "server/keys_ok.py", "import os\nAWS_KEY = os.environ['AWS_KEY']\nPASSWORD_FIELD = 'password'\n")
+    w(d / "server/routes_ok.js", "const app = require('express')();\napp.delete('/orders/:id', requireAuth, async (req, res) => {\n  await Order.deleteOne({ _id: req.params.id });\n  res.end();\n});\n")
     w(d / "orders_ok.py", "def confirm(answer):\n    if answer == 'yes' or answer == 'y':\n        return True\n    return False\n")
     w(d / "web/cart_ok.js", "export function total(items) {\n  return (\n    items.length\n  );\n}\n")
     w(d / "web/theme_ok.css", ".card { color: #333; width: 0; }\n")
@@ -89,8 +99,12 @@ PLANTED = [
     ("JavaScript return before a line break", "web/cart.js", {"bugs"}, ["return"]),
     ("misspelled CSS property", "web/theme.css", {"bugs"}, ["colr"]),
     ("Markdown link to a missing file", "docs/links.md", {"bugs"}, ["setup.md"]),
+    ("SQL injection from a web request", "server/users.py", {"security"}, ["database query"]),
+    ("visitor text put into the page as HTML", "web/comments.js", {"security"}, ["html"]),
+    ("AWS key written in the code", "server/keys.py", {"security"}, ["aws"]),
+    ("delete route with no login check", "server/routes.js", {"security"}, ["login"]),
 ]
-DECOYS = ["orders_ok.py", "web/cart_ok.js", "web/theme_ok.css", "docs/links_ok.md", "shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
+DECOYS = ["server/users_ok.py", "web/comments_ok.js", "server/keys_ok.py", "server/routes_ok.js", "orders_ok.py", "web/cart_ok.js", "web/theme_ok.css", "docs/links_ok.md", "shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
 IGNORE_KINDS_ON_DECOYS = {"unused-file"}          # "nothing links to this file" ideas are true for a practice project
 
 

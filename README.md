@@ -32,7 +32,7 @@ alone and reported to you, and anything that would change your code waits for a 
 
 | | |
 |---|---|
-| **Finds** | broken code, hidden logic bugs that run without any error (see below), unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
+| **Finds** | broken code, hidden logic bugs that run without any error, security holes (see below), unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
 | **Fixes** | only what passes the **safety gate**: your project is copied, the change is made on the copy, and a real browser (or your own tests) compares before and after. Any difference means the change is held back. |
 | **Asks** | before anything that is a judgement call. Lighter or faster code is offered as a suggestion that waits for your approval. |
 | **Reports** | everything in one standard report, sorted as 🔴 alarms → 🟠 decisions → ✅ handled → 💡 ideas. Each item goes to the right person: the owner of that folder and whoever changed it. |
@@ -55,6 +55,28 @@ complains about correct code. (It found real bugs in matplotlib, scikit-learn, m
 | **CSS** | misspelled properties (`widht`, `colr`) · impossible colours (`#ggg`) · sizes without units (`width: 100`) |
 | **JSON** | the same key twice · `package.json` starting a file that does not exist |
 | **Markdown** | links and pictures to missing files · links to headings that do not exist · a code block that never closes · `#Heading` without a space |
+
+### Security
+
+Arachnid reads your code the way an attacker would. Everything runs on your computer; only one optional check talks
+to the internet, and it sends nothing but library names and versions.
+
+| Check | What it finds |
+|---|---|
+| **Injection** | visitor input inside a database query (SQL and NoSQL), a shell command, `eval` / `new Function`, or a page template |
+| **XSS** | text put into the page as HTML: `innerHTML`, `dangerouslySetInnerHTML`, `v-html`, `document.write` |
+| **Secrets** | real-looking keys (AWS, GitHub, Stripe, OpenAI, Anthropic, Google, Slack, private keys ...), passwords written in code, a committed `.env` file |
+| **Broken trust** | login tokens accepted without checking the signature, passwords stored with md5/sha, guessable reset codes (`random`, `Math.random`), files, redirects and server requests chosen by the visitor, whole-request records (`User.create(req.body)`), debug mode, CSRF switched off, tokens in `localStorage` |
+| **Open API routes** | routes that create, change or delete data with no visible login check, in Express, Next.js, Flask, FastAPI and Django REST framework |
+| **Libraries with known holes** | every exact library version from your lock files, looked up in the free [OSV](https://osv.dev) database (npm, PyPI, Go, Cargo, RubyGems, Composer, Maven, NuGet, Pub), with the version to update to |
+
+An **alarm** means the danger is clear (visitor input flows straight into a query, a real key is in the code, a
+critical hole in a library you list). The rest are **decisions** for a person. Tested on about 23,000 files of
+professional code with **zero** false alarms. To keep the library lookup off: `"vulncheck": false` in
+`arachnid.config.json`, or `ARACHNID_OFFLINE=1`.
+
+What it cannot do: it reads code, it does not attack your running app, and it cannot know your business rules (who
+may see whose data). For an app that handles money or personal data, it does not replace a professional security review.
 
 ## Get started
 
@@ -212,7 +234,7 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 
 ```bash
 python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
-python qa_accuracy.py         # 20 planted problems must be found, 13 clean look-alikes must stay quiet
+python qa_accuracy.py         # 24 planted problems must be found, 17 clean look-alikes must stay quiet
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 
