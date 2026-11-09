@@ -512,11 +512,6 @@ class Engine:
                     return True
         return False
 
-        for i in range(3, len(lw) - 2):
-            if self._in(lw[:i]) and self._in(lw[i:]):
-                return True
-        return False
-
     @staticmethod
     def _vowel_slip(a, b):
         """Same word except one vowel typed as another (avarage / average, definately / definitely)."""

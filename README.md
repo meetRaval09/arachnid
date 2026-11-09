@@ -32,7 +32,7 @@ alone and reported to you, and anything that would change your code waits for a 
 
 | | |
 |---|---|
-| **Finds** | broken code, unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
+| **Finds** | broken code, hidden logic bugs that run without any error (see below), unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
 | **Fixes** | only what passes the **safety gate**: your project is copied, the change is made on the copy, and a real browser (or your own tests) compares before and after. Any difference means the change is held back. |
 | **Asks** | before anything that is a judgement call. Lighter or faster code is offered as a suggestion that waits for your approval. |
 | **Reports** | everything in one standard report, sorted as 🔴 alarms → 🟠 decisions → ✅ handled → 💡 ideas. Each item goes to the right person: the owner of that folder and whoever changed it. |
@@ -40,6 +40,21 @@ alone and reported to you, and anything that would change your code waits for a 
 
 It works on any language. Python, JavaScript/TypeScript, HTML/CSS, JSON and Markdown get the deepest checks, and the
 dependency files of npm, pip, Maven, Gradle, Go, Cargo, Composer, Bundler, NuGet, pub and SwiftPM are understood too.
+
+### Hidden bugs it hunts
+
+Code that runs without a single error and still does the wrong thing. These are reported for a person to decide,
+never changed automatically. Each rule was tested on millions of lines of professional code so that it almost never
+complains about correct code. (It found real bugs in matplotlib, scikit-learn, mermaid and Chrome's own tools.)
+
+| Language | Examples |
+|---|---|
+| **Python** | `if x == "a" or "b"` (always true) · `items = items.sort()` (None) · `name.strip()` (result thrown away) · `"Hello {name}"` without `f` · `range(len(x) + 1)` · a `while` loop whose variable never changes · `int(input())` that crashes on letters · a default like `when=datetime.now()` that never updates · an error created but not raised · a grade function that returns nothing for low scores |
+| **JavaScript / TypeScript** | `if (x = 5)` · `x === NaN` · `typeof x === "numbr"` · `return` with the value on the next line · `fetch()` used without `await` · `forEach(async ...)` · `useEffect(async ...)` · `onClick={handle()}` · `i <= list.length` · `.lenght`, `innerHtml` · `getElementById("#menu")` · `new Date(2024, 12, 1)` · a duplicate `case` |
+| **HTML** | the same id twice · a `<label>` for a missing id · a quantity or price field that accepts negative numbers · a button that submits the form by accident · `type="emial"` · a script with a misspelled type · a script looking for an element no page has · `onclick` calling a function that does not exist |
+| **CSS** | misspelled properties (`widht`, `colr`) · impossible colours (`#ggg`) · sizes without units (`width: 100`) |
+| **JSON** | the same key twice · `package.json` starting a file that does not exist |
+| **Markdown** | links and pictures to missing files · links to headings that do not exist · a code block that never closes · `#Heading` without a space |
 
 ## Get started
 
@@ -197,7 +212,7 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 
 ```bash
 python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
-python qa_accuracy.py         # 16 planted problems must be found, 9 clean look-alikes must stay quiet
+python qa_accuracy.py         # 20 planted problems must be found, 13 clean look-alikes must stay quiet
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 

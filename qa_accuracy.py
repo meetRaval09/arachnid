@@ -42,7 +42,15 @@ def build(d):
                     "    return requests.get('https://api.example.com/v1/items?api_key=sk_live_51HxQabcdefghijklmnop', verify=False)\n")
     w(d / "rules.py", "ALLOWED = ['red', 'green', 'blue', 'black', 'white']\n\n\ndef ok(c):\n    return c in ALLOWED\n")
     w(d / "shop.py", "def checkout(cart):\n    total = sum(i['price'] for i in cart)\n    return gateway.charge(amount=total)\n")
+    w(d / "orders.py", "def confirm(answer):\n    if answer == 'yes' or 'y':\n        return True\n    return False\n")
+    w(d / "web/cart.js", "export function total(items) {\n  return\n    items.length;\n}\n")
+    w(d / "web/theme.css", ".card { colr: #333; }\n")
+    w(d / "docs/links.md", "# Links\n\nRead the [setup guide](setup.md).\n")
     # ---- decoys: look suspicious, are actually fine -------------------------------------------------------------
+    w(d / "orders_ok.py", "def confirm(answer):\n    if answer == 'yes' or answer == 'y':\n        return True\n    return False\n")
+    w(d / "web/cart_ok.js", "export function total(items) {\n  return (\n    items.length\n  );\n}\n")
+    w(d / "web/theme_ok.css", ".card { color: #333; width: 0; }\n")
+    w(d / "docs/links_ok.md", "# Links\n\nRead the [guide](guide.md) and [clean notes](clean.md).\n")
     w(d / "shop_ok.py", "def checkout(cart):\n    total = sum(i['price'] for i in cart)\n    if total <= 0:\n        return None\n"
                         "    return gateway.charge(amount=total)\n\n\ndef history(user):\n    return get_payment_history(user)\n")
     w(d / "docs/clean.md", "# Clean\n\nWe receive the data. The variable is called `recieve_buf` in code:\n\n```\nteh = 1\n```\n\nSee GitHub.\n")
@@ -77,8 +85,12 @@ PLANTED = [
     ("request without timeout", "api.py", {"net", "advisor"}, ["timeout"]),
     ("constant list used for lookups", "rules.py", {"advisor"}, ["set"]),
     ("payment without an amount check", "shop.py", {"money"}, ["above 0"]),
+    ("always-true `or \"y\"` condition", "orders.py", {"bugs"}, ["always true"]),
+    ("JavaScript return before a line break", "web/cart.js", {"bugs"}, ["return"]),
+    ("misspelled CSS property", "web/theme.css", {"bugs"}, ["colr"]),
+    ("Markdown link to a missing file", "docs/links.md", {"bugs"}, ["setup.md"]),
 ]
-DECOYS = ["shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
+DECOYS = ["orders_ok.py", "web/cart_ok.js", "web/theme_ok.css", "docs/links_ok.md", "shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
 IGNORE_KINDS_ON_DECOYS = {"unused-file"}          # "nothing links to this file" ideas are true for a practice project
 
 
