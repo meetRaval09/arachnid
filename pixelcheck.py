@@ -84,9 +84,16 @@ def make_copy(src, dst):
 def build(work, cmd):
     if cmd is None:
         return work
+    if cmd.startswith(("npm", "yarn", "pnpm")) and (Path(work) / "package.json").exists() and not (Path(work) / "node_modules").exists():
+        raise RuntimeError("the project's packages are not installed (there is no node_modules folder), so it cannot be "
+                           "built to compare before and after. Run `npm install` in the project once, then run fix again")
     r = subprocess.run(cmd, cwd=str(work), shell=True, capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
-        raise RuntimeError("build failed: " + (r.stderr or r.stdout)[-300:])
+        out = (r.stderr or r.stdout or "")
+        if re.search(r"not found|is not recognized|Cannot find module|ERR_MODULE_NOT_FOUND|command not found", out):
+            raise RuntimeError("the build needs tools that are not installed (%s). Run `npm install` in the project once, "
+                               "then run fix again" % out.strip().splitlines()[-1][:120] if out.strip() else "unknown")
+        raise RuntimeError("build failed: " + out[-300:])
     for d in OUT_DIRS:
         if (work / d).is_dir():
             return work / d

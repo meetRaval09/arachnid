@@ -40,6 +40,10 @@ def proven_same_program(root, items):
                 pass
         elif ext in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css"):
             other.append((rel, old, new, ext))
+    for rel, old, new, ext in other:              # no tools needed: only whole comment lines changed
+        if comment_lines_only(old, new, ext):
+            same.add(rel)
+    other = [o for o in other if o[0] not in same]
     if other:
         try:
             from syntaxcheck import Esbuild, ESBUILD_LOADER
@@ -54,6 +58,89 @@ def proven_same_program(root, items):
         except Exception:
             pass
     return same
+
+
+def _line_states(text, css=False):
+    """For every line: what the reader is inside of when the line STARTS - 'code', 'block' (a /* */ comment) or
+    'unsure' (inside a string, a `template`, or anything we cannot be certain about)."""
+    states, state, i, n, line_state = [], "code", 0, len(text), "code"
+    tmpl = 0
+    while i <= n:
+        if i == n or text[i] == "\n":
+            states.append(line_state)
+            if state in ("line", "str"):
+                state = "code"
+            line_state = state if state in ("code", "block") and not tmpl else "unsure"
+            i += 1
+            continue
+        c, nx = text[i], text[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if c == "/" and nx == "*":
+                state, i = "block", i + 2
+                continue
+            if c == "/" and nx == "/" and not css:
+                state = "line"
+            elif c in "'\"" :
+                state, quote = "str", c
+            elif c == "`" and not css:
+                tmpl += 1
+                state = "tmpl"
+        elif state == "block":
+            if c == "*" and nx == "/":
+                state, i = "code", i + 2
+                continue
+        elif state == "str":
+            if c == "\\":
+                i += 2
+                continue
+            if c == quote:
+                state = "code"
+        elif state == "tmpl":
+            if c == "\\":
+                i += 2
+                continue
+            if c == "`":
+                tmpl -= 1
+                state = "code"
+        i += 1
+    return states
+
+
+def comment_lines_only(old, new, ext):
+    """True only when old and new differ in WHOLE comment lines and nowhere else - provable without any tool.
+    Strict on purpose: every changed line must start (after spaces) with // or sit in a /* */ comment that itself
+    began at the start of a line, and no backtick (a `template`) may appear before it.  Any doubt -> False."""
+    css = ext == ".css"
+    a, b = old.split("\n"), new.split("\n")
+    if len(a) != len(b) or old == new:
+        return False
+    sa, sb = _line_states(old, css), _line_states(new, css)
+    if len(sa) != len(a) or len(sb) != len(b):
+        return False
+    for k, (x, y) in enumerate(zip(a, b)):
+        if x == y:
+            continue
+        if sa[k] != sb[k] or "`" in "\n".join(a[:k + 1]) or "`" in "\n".join(b[:k + 1]):
+            return False
+        for lines, st in ((a, sa[k]), (b, sb[k])):
+            t = lines[k].strip()
+            if st == "code":
+                if t.startswith("//") and not css:
+                    continue
+                if t.startswith("/*") and (("*/" not in t) or t.endswith("*/")) and t.count("*/") <= 1:
+                    continue
+                return False
+            if st == "block":
+                if "*/" in t and not t.endswith("*/"):
+                    return False                  # the comment ends and code follows on the same line
+                j = k                             # the comment must have started at the beginning of a line
+                while j >= 0 and "/*" not in lines[j]:
+                    j -= 1
+                if j < 0 or not lines[j].strip().startswith("/*"):
+                    return False
+                continue
+            return False
+    return True
 
 
 def guard(root, apply_fn, allow_unstable=False, build_cmd="auto", log=print, repair=False):
