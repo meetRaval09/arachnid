@@ -64,15 +64,19 @@ to the internet, and it sends nothing but library names and versions.
 | Check | What it finds |
 |---|---|
 | **Injection** | visitor input inside a database query (SQL and NoSQL), a shell command, `eval` / `new Function`, or a page template |
-| **XSS** | text put into the page as HTML: `innerHTML`, `dangerouslySetInnerHTML`, `v-html`, `document.write` |
+| **XSS** | text put into the page as HTML: `innerHTML`, `dangerouslySetInnerHTML`, `v-html`, `document.write`, Angular `bypassSecurityTrustHtml`, templates that print without escaping (`{{ x\|safe }}`, EJS `<%- %>`, `{{{ }}}`, `autoescape: false`) |
 | **Secrets** | real-looking keys (AWS, GitHub, Stripe, OpenAI, Anthropic, Google, Slack, private keys ...), passwords written in code, a committed `.env` file |
+| **XXE and ReDoS** | XML readers that load outside files (`noent: true`, external entities); text patterns like `([0-9]+)+` that freeze the server on a crafted input |
 | **Broken trust** | login tokens accepted without checking the signature, passwords stored with md5/sha, guessable reset codes (`random`, `Math.random`), files, redirects and server requests chosen by the visitor, whole-request records (`User.create(req.body)`), debug mode, CSRF switched off, tokens in `localStorage` |
 | **Open API routes** | routes that create, change or delete data with no visible login check, in Express, Next.js, Flask, FastAPI and Django REST framework |
 | **Libraries with known holes** | every exact library version from your lock files, looked up in the free [OSV](https://osv.dev) database (npm, PyPI, Go, Cargo, RubyGems, Composer, Maven, NuGet, Pub), with the version to update to |
 
 An **alarm** means the danger is clear (visitor input flows straight into a query, a real key is in the code, a
-critical hole in a library you list). The rest are **decisions** for a person. Tested on about 23,000 files of
-professional code with **zero** false alarms. To keep the library lookup off: `"vulncheck": false` in
+critical hole in a library you list). The rest are **decisions** for a person.
+
+**Tested on real vulnerable apps:** the six training apps security teams use - OWASP NodeGoat, OWASP Juice Shop,
+DVNA, PyGoat, DVPWA and Vulpy. Arachnid found **42 of their 44 documented code-level holes**. And on about 23,000
+files of professional code it raised **zero** false alarms. To keep the library lookup off: `"vulncheck": false` in
 `arachnid.config.json`, or `ARACHNID_OFFLINE=1`.
 
 What it cannot do: it reads code, it does not attack your running app, and it cannot know your business rules (who

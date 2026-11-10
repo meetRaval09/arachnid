@@ -732,6 +732,10 @@ def _check_js(rel, text):
     lines_ = text.split("\n")
     if max((len(x) for x in lines_), default=0) > 2000 or len(text) / max(1, len(lines_)) > 200:
         return out                                  # minified / bundled file - not written by a person
+    if re.search(r"(?i)(^|/)(jquery|bootstrap|materialize|three|lodash|underscore|d3|chart|moment|popper|highlight|prism|codemirror|"
+                 r"leaflet|swiper|select2|datatables|socket\.io)([.-][\w.-]*)?\.js$", rel) or "/vendor/" in "/" + rel or \
+            (len(text) > 15000 and re.search(r"/\*!|@license|Copyright \(c\)|MIT License", text[:800])):
+        return out                                  # someone else's bundled library
     code, strings = js_lex(text)
     is_jsx = rel.lower().endswith((".jsx", ".tsx")) or bool(re.search(r"<[A-Z][\w.]*[\s/>]|</\w+>", code))
 

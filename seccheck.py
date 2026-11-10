@@ -86,6 +86,12 @@ RULES = {
     "sec-xss": ("decision", "text put into the page as HTML",
                 "if it can contain visitor text, they can run their own script in other people's browsers (XSS) and steal sessions",
                 "use textContent / normal {value} rendering, or clean it with DOMPurify.sanitize(...)"),
+    "sec-xxe": ("decision", "an XML reader that loads outside files",
+                "a visitor's XML can say \"include /etc/passwd\" (or an internal address) and the server reads it out (XXE)",
+                "switch off entity loading: defusedxml in Python, noent: false in libxmljs"),
+    "sec-redos": ("decision", "a text pattern that can freeze the server",
+                  "a nested repeat like ([0-9]+)+ takes forever on a crafted input - one request blocks everyone (ReDoS)",
+                  "remove the outer repeat (e.g. /([0-9]+)#/), or limit the input length first"),
     "sec-template-injection": ("decision", "a page template built from text",
                                "template code inside visitor text gets run on the server", "pass values to render_template(...) instead of building the template"),
     "sec-nosql-injection": ("decision", "a database filter taken straight from the request",
@@ -112,7 +118,7 @@ RULES = {
 }
 
 TAINT = re.compile(r"\brequest\.(args|form|values|json|data|files|get_json|GET|POST|body|query_params|params|headers|cookies|view_args|path_params|query)\b"
-                   r"|\breq\.(query|params|body|headers|cookies|url)\b|\binput\s*\(|\bsys\.argv\b|\bevent\s*\[\s*['\"](body|queryStringParameters|pathParameters)"
+                   r"|\breq\.(query|params|body|headers|cookies|url|files?)\b|\binput\s*\(|\bsys\.argv\b|\bevent\s*\[\s*['\"](body|queryStringParameters|pathParameters)"
                    r"|\b(searchParams|URLSearchParams|location\.(search|hash|href))\b|\bctx\.(query|params|request)\b")
 SQL_WORDS = re.compile(r"(?i)\b(select\b[\s\S]*\bfrom|insert\s+into|update\s+[\w\"`.]+\s+set|delete\s+from|drop\s+table|create\s+table|alter\s+table|\bwhere\b\s+\w)")
 SECRET_NAME = re.compile(r"(?i)(passw(or)?d|passwd|pwd|secret|api_?key|apikey|access_?key|auth_?token|private_?key|client_?secret|token|credential|"
@@ -299,10 +305,32 @@ def check_python(rel, text):
         return out
     src = _source_getter(text)
     assigned = {}                                     # name -> value node, for one hop: q = f"..."; execute(q)
+    parent = {}
     for n in ast.walk(tree):
+        for ch in ast.iter_child_nodes(n):
+            parent[ch] = n
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
             assigned.setdefault(n.targets[0].id, []).append(n.value)
+
+    def scope_of(node):
+        p = parent.get(node)
+        while p is not None and not isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            p = parent.get(p)
+        return p or tree
+    scoped = {}                                       # (scope, name) -> [(line, kind, value)]  kind: "=" or "+="
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+            if n.value is None:
+                continue
+            for t in targets:
+                if isinstance(t, ast.Name):
+                    k = "+=" if isinstance(n, ast.AugAssign) and isinstance(n.op, ast.Add) else "=" if not isinstance(n, ast.AugAssign) else None
+                    if k:
+                        scoped.setdefault((scope_of(n), t.id), []).append((n.lineno, k, n.value))
     imports_yaml_safe = "SafeLoader" in text or "CSafeLoader" in text
+    md5_names = set(re.findall(r"from\s+hashlib\s+import\s+([\w, ]+)", text))
+    md5_names = {x.strip() for grp in md5_names for x in grp.split(",")} & {"md5", "sha1", "sha256", "sha512", "sha224"}
 
     def code_of(node):
         """The code of an expression WITHOUT the text inside its quotes ("input(" written in a string is not input)."""
@@ -316,18 +344,32 @@ def check_python(rel, text):
                 parts.append(n.id)
         return " ".join(parts)
 
-    def tainted_expr(node, depth=0):
-        """Does this value come from the visitor - directly, or through a variable set from request data?"""
+    def tainted_expr(node, depth=0, at=None):
+        """Does this value come from the visitor - directly, or through variables set from request data?"""
         if TAINT.search(code_of(node)):
             return True
-        if depth < 2:
+        if depth < 3:
+            sc = scope_of(at if at is not None else node)
             for n in ast.walk(node):
-                if isinstance(n, ast.Name) and n.id in assigned and any(tainted_expr(v, depth + 1) for v in assigned[n.id]):
-                    return True
+                if isinstance(n, ast.Name):
+                    vals = [v for _, _, v in scoped.get((sc, n.id), [])] or (assigned.get(n.id, []) if len(assigned.get(n.id, [])) == 1 else [])
+                    if any(tainted_expr(v, depth + 1, at if at is not None else node) for v in vals):
+                        return True
         return False
 
-    def resolve(node):
-        if isinstance(node, ast.Name) and node.id in assigned and len(assigned[node.id]) == 1:
+    def resolve(node, at=None):
+        """The text a variable holds at this point: q = "SELECT ..." + name; q += " LIMIT 5"; execute(q)"""
+        if not isinstance(node, ast.Name):
+            return node
+        hist = sorted(x for x in scoped.get((scope_of(at or node), node.id), []) if x[0] <= (at or node).lineno)
+        if hist:
+            start = max((i for i, h in enumerate(hist) if h[1] == "="), default=None)
+            if start is not None:
+                val = hist[start][2]
+                for _, k, v in hist[start + 1:]:
+                    val = ast.BinOp(left=val, op=ast.Add(), right=v)
+                return val
+        if node.id in assigned and len(assigned[node.id]) == 1:
             return assigned[node.id][0]
         return node
 
@@ -341,29 +383,32 @@ def check_python(rel, text):
             tainted = bool(TAINT.search(code_of(node)))
             # --- SQL
             if last in ("execute", "executemany", "executescript", "raw", "text", "read_sql", "read_sql_query", "exec_driver_sql", "query") and args:
-                q = resolve(args[0])
+                q = resolve(args[0], node)
                 parts = _dynamic_str(q)
                 if parts and SQL_WORDS.search(_const_text(q)) and not _harmless(parts, assigned):
-                    t = tainted or any(tainted_expr(p) for p in parts)
+                    t = tainted or any(tainted_expr(p, at=node) for p in parts)
                     add(out, rel, line, "sec-sql-injection", "`%s(...)` with %s" % (last, src(args[0])[:50]), alarm=bool(t))
             # --- shell commands
             shell_call = fn in ("os.system", "os.popen", "commands.getoutput", "subprocess.getoutput", "subprocess.getstatusoutput")
             sp = fn.startswith("subprocess.") and last in ("run", "call", "check_call", "check_output", "Popen") and \
                 isinstance(kw.get("shell"), ast.Constant) and kw["shell"].value is True
             if (shell_call or sp) and args:
-                c = resolve(args[0])
+                c = resolve(args[0], node)
                 parts = _dynamic_str(c)
                 if parts and not _harmless(parts, assigned) or (isinstance(args[0], ast.Name) and c is args[0]):
-                    add(out, rel, line, "sec-command-injection", "`%s(%s)`" % (fn, src(args[0])[:40]), alarm=tainted or bool(parts and any(tainted_expr(p) for p in parts)))
+                    add(out, rel, line, "sec-command-injection", "`%s(%s)`" % (fn, src(args[0])[:40]),
+                        alarm=tainted or bool(parts and any(tainted_expr(p, at=node) for p in parts)) or tainted_expr(args[0], at=node))
             # --- eval / exec
             if fn in ("eval", "exec") and args and not isinstance(args[0], ast.Constant):
                 if not (isinstance(args[0], ast.Name) and args[0].id in ("code", "compiled", "source_code") and not tainted):
-                    add(out, rel, line, "sec-code-injection", "`%s(%s)`" % (fn, src(args[0])[:40]), alarm=tainted or tainted_expr(args[0]))
+                    add(out, rel, line, "sec-code-injection", "`%s(%s)`" % (fn, src(args[0])[:40]), alarm=tainted or tainted_expr(args[0], at=node))
             # --- deserialisation
             if fn in ("pickle.loads", "pickle.load", "cPickle.loads", "cPickle.load", "marshal.loads", "dill.loads", "dill.load",
                       "jsonpickle.decode", "yaml.unsafe_load", "joblib.load") or \
-                    fn == "yaml.load" and not imports_yaml_safe and "Loader" not in kw and len(args) < 2:
-                add(out, rel, line, "sec-unsafe-deserialize", "`%s(...)`" % fn, alarm=tainted)
+                    fn == "yaml.load" and not imports_yaml_safe and "Loader" not in kw and len(args) < 2 or \
+                    fn in ("yaml.load", "yaml.load_all") and re.search(r"\b(Unsafe|Full)?Loader\b", src(kw.get("Loader") or (args[1] if len(args) > 1 else ast.Constant("")))) \
+                    and not re.search(r"Safe|Base", src(kw.get("Loader") or (args[1] if len(args) > 1 else ast.Constant("")))):
+                add(out, rel, line, "sec-unsafe-deserialize", "`%s(...)`" % fn, alarm=tainted or any(tainted_expr(a, at=node) for a in args))
             # --- JWT
             if fn in ("jwt.decode",) or last == "decode" and fn.startswith("jwt"):
                 opts = kw.get("options")
@@ -371,9 +416,30 @@ def check_python(rel, text):
                 if re.search(r"""verify_signature['"]?\s*:\s*False|\bverify\s*=\s*False|algorithms\s*=\s*\[\s*['"]none['"]""", s):
                     add(out, rel, line, "sec-jwt-unverified", "`%s`" % s[:60], alarm=True)
             # --- password hashing
-            if re.fullmatch(r"hashlib\.(md5|sha1|sha224|sha256|sha512|new)", fn) and re.search(r"(?i)pass(word|wd)?|pwd", src(node)):
+            stored = isinstance(parent.get(node), ast.Attribute) and parent[node].attr == "hexdigest"   # text kept in a database
+            if (re.fullmatch(r"hashlib\.(md5|sha1|sha224|sha256|sha512|new)", fn) or fn in md5_names) and stored and \
+                    re.search(r"(?i)pass(word|wd)?|pwd", src(node)):
                 add(out, rel, line, "sec-weak-password-hash", "`%s(...)` on a password" % fn)
+            # --- text patterns that can freeze the server
+            if fn in ("re.compile", "re.match", "re.search", "re.fullmatch", "re.findall", "re.finditer", "re.sub", "re.split") and args and \
+                    isinstance(args[0], ast.Constant) and isinstance(args[0].value, str) and REDOS.search(args[0].value):
+                add(out, rel, line, "sec-redos", "`%s(%r)`" % (fn, args[0].value[:40]))
+            # --- XML that may load outside files (XXE)
+            if last == "setFeature" and len(args) == 2 and re.search(r"external_(ges|pes)|external-general|external-parameter", src(args[0])) and \
+                    isinstance(args[1], ast.Constant) and args[1].value is True:
+                add(out, rel, line, "sec-xxe", "`%s`" % src(node)[:60])
+            if last == "XMLParser" and any(k in kw and isinstance(kw[k], ast.Constant) and kw[k].value is v for k, v in
+                                           (("resolve_entities", True), ("no_network", False), ("load_dtd", True))):
+                add(out, rel, line, "sec-xxe", "`%s`" % src(node)[:60])
+            # --- template engines with escaping switched off
+            if isinstance(kw.get("autoescape"), ast.Constant) and kw["autoescape"].value is False:
+                add(out, rel, line, "sec-xss", "`%s(... autoescape=False)` - every value is put into pages as HTML" % fn[:30])
             # --- files / redirects / fetches chosen by the visitor
+            sink = fn in ("open", "send_file", "os.remove", "os.unlink", "shutil.rmtree", "os.rmdir", "io.open", "FileResponse", "requests.get",
+                          "requests.post", "requests.request", "urllib.request.urlopen", "httpx.get", "httpx.post", "urlopen") or \
+                last in ("send_file", "read_text", "read_bytes", "write_text", "unlink", "redirect", "HttpResponseRedirect", "RedirectResponse") or \
+                fn.endswith(("session.get", "client.get"))
+            tainted = tainted or (sink and any(tainted_expr(a, at=node) for a in args[:1]))
             if tainted and (fn in ("open", "send_file", "os.remove", "os.unlink", "shutil.rmtree", "os.rmdir", "io.open", "FileResponse")
                             or last in ("send_file", "read_text", "read_bytes", "write_text", "unlink")) and \
                     not re.search(r"basename|secure_filename|safe_join|resolve\(\)\.is_relative_to", src(node)):
@@ -381,7 +447,7 @@ def check_python(rel, text):
             if tainted and last in ("redirect", "HttpResponseRedirect", "RedirectResponse") and not re.search(r"url_for|reverse\(|is_safe_url|url_has_allowed", src(node)):
                 add(out, rel, line, "sec-open-redirect", "`%s`" % src(node)[:60])
             if tainted and (fn in ("requests.get", "requests.post", "requests.request", "urllib.request.urlopen", "httpx.get", "httpx.post", "urlopen")
-                            or fn.endswith(("session.get", "client.get"))) and args and TAINT.search(src(args[0])):
+                            or fn.endswith(("session.get", "client.get"))) and args and tainted_expr(args[0], at=node):
                 add(out, rel, line, "sec-ssrf", "`%s`" % src(node)[:60])
             # --- templates, debug
             if fn in ("render_template_string", "Template", "jinja2.Template", "Markup", "mark_safe") and args and \
@@ -490,12 +556,58 @@ JS_AUTH_BODY = re.compile(r"req\.(user|auth|session|isAuthenticated)|request\.(u
                           r"firebase\.auth|admin\.auth|res\.status\(\s*40[13]\)|status:\s*40[13]|unauthori[sz]ed|forbidden", re.I)
 
 
+LIB_NAMES = re.compile(r"(?i)(^|/)(jquery|bootstrap|materialize|three|lodash|underscore|d3|chart|moment|angular|react(-dom)?|vue|"
+                       r"popper|semantic|foundation|backbone|handlebars|mustache|highlight|prism|codemirror|ace|tinymce|ckeditor|"
+                       r"leaflet|mapbox-gl|pdf|swiper|slick|select2|datatables|socket\.io|axios|bluebird|zepto|knockout|ember|"
+                       r"mathjax|katex|marked|showdown|dompurify|plotly|echarts|fabric|konva|p5|phaser|pixi|babylon)([.-][\w.-]*)?\.js$")
+REDOS = re.compile(r"\((?:\?:)?(?:\\.|\[[^\]]+\]|[^()\\|?*+{])[+*](?:(?:\\.|\[[^\]]+\]|[^()\\|?*+{])\?)*\)(?:[+*]|\{\d+,\})")
+
+
+def is_library(rel, text):
+    """Someone else's bundled library (jquery.js, three.js, a file with a /*! licence banner) - not the project's own code."""
+    return bool(LIB_NAMES.search(rel)) or ("/vendor/" in "/" + rel) or \
+        (len(text) > 15000 and re.search(r"/\*!|@license|\(c\) \d{4}|Copyright \(c\)|MIT License", text[:800]))
+
+
 def check_js(rel, text):
     out = []
     lines_ = text.split("\n")
-    if max((len(x) for x in lines_), default=0) > 2000 or len(text) / max(1, len(lines_)) > 200:
+    if max((len(x) for x in lines_), default=0) > 2000 or len(text) / max(1, len(lines_)) > 200 or is_library(rel, text):
         return out
     code, strings = js_lex(text)
+    destructured = bool(re.search(r"\(\s*\{[^}]*\b(params|query|body)\b[^}]*\}\s*(:\s*\w+)?\s*,\s*res\b", code))
+    taint_re = re.compile(TAINT.pattern + (r"|\b(params|query|body)\.\w+" if destructured else ""))
+
+    def value_of(expr, pos, depth=0):
+        """The expression plus what its variables were set to just before pos: q = "SELECT" + x; db.query(q)"""
+        txt = expr
+        if depth >= 2:
+            return txt
+        for name in list(dict.fromkeys(re.findall(r"(?<![\w$.'\"`])([A-Za-z_$][\w$]*)(?![\w$]*\s*\()", expr)))[:8]:
+            if name in ("req", "res", "this", "true", "false", "null", "undefined", "await", "new"):
+                continue
+            window = code[max(0, pos - 6000):pos]
+            hits = list(re.finditer(r"(?:\b(?:const|let|var)\s+|[;{}\n]\s*)%s\s*=(?![=>])\s*" % re.escape(name), window))
+            hits += list(re.finditer(r"\b(?:const|let|var)\s*\{[^}]*\b%s\b[^}]*\}\s*=\s*" % re.escape(name), window))
+            if hits:
+                h = max(hits, key=lambda x: x.end())
+                a = max(0, pos - 6000) + h.end()
+                e = a
+                depth_ = 0
+                while e < len(code) and e < a + 600:
+                    ch = code[e]
+                    if ch in "([{":
+                        depth_ += 1
+                    elif ch in ")]}":
+                        if depth_ == 0:
+                            break
+                        depth_ -= 1
+                    elif ch in ";\n" and depth_ == 0:
+                        break
+                    e += 1
+                sub = text[a:e]
+                txt += " " + value_of(sub, a, depth + 1) if sub.strip() else ""
+        return txt
 
     def raw(a, b):
         return text[a:b]
@@ -514,7 +626,7 @@ def check_js(rel, text):
             continue
         if "${" not in val and not re.search(r"[A-Za-z_$]", re.sub(r"(['\"`])\s*\1", "", vcode)):
             continue
-        add(out, rel, _line(text, m.start()), "sec-xss", "`.%s %s %s`" % (m.group(1), m.group(2), val[:40]), alarm=bool(TAINT.search(val)))
+        add(out, rel, _line(text, m.start()), "sec-xss", "`.%s %s %s`" % (m.group(1), m.group(2), val[:40]), alarm=bool(taint_re.search(value_of(val, m.end()))))
     for m in re.finditer(r"\b(insertAdjacentHTML|document\.write(ln)?)\s*\(", code):
         a, b = call_args(m.end() - 1)
         val = raw(a, b)
@@ -547,11 +659,13 @@ def check_js(rel, text):
         a, b = call_args(m.end() - 1)
         first_off, first = _split_top(code[a:b], ",")[0]
         first_raw = raw(a + first_off, a + first_off + len(first)).strip()
+        if re.fullmatch(r"[A-Za-z_$][\w$]*", first_raw):
+            first_raw = value_of(first_raw, m.start()).split(" ", 1)[-1].strip() or first_raw   # const query = "..." + x; db.query(query)
         dynamic = ("${" in first_raw and first_raw.startswith("`")) or re.search(r"['\"`]\s*\+\s*[A-Za-z_$]|[A-Za-z_$][\w$.\]\)]*\s*\+\s*['\"`]", first_raw)
         if dynamic and SQL_WORDS.search(first_raw) and m.group(1) != "get" or (m.group(1) in ("$queryRawUnsafe", "$executeRawUnsafe") and dynamic):
             if re.match(r"\s*sql`|Prisma\.sql`", text[max(0, a - 6):a + 6]):
                 continue
-            add(out, rel, _line(text, m.start()), "sec-sql-injection", "`.%s(%s)`" % (m.group(1), first_raw[:50]), alarm=bool(TAINT.search(first_raw)))
+            add(out, rel, _line(text, m.start()), "sec-sql-injection", "`.%s(%s)`" % (m.group(1), first_raw[:50]), alarm=bool(taint_re.search(value_of(first_raw, m.start()))))
     # --- shell commands
     for m in re.finditer(r"\b(exec|execSync|spawn|spawnSync)\s*\(", code):
         before = code[max(0, m.start() - 20):m.start()]
@@ -563,13 +677,24 @@ def check_js(rel, text):
         first_raw = raw(a, a + len(_split_top(code[a:b], ",")[0][1])).strip()
         shell = m.group(1).startswith("exec") or re.search(r"shell\s*:\s*true", raw(a, b))
         if shell and ("${" in first_raw or re.search(r"\+\s*[A-Za-z_$]|[A-Za-z_$][\w$]*\s*\+", first_raw)):
-            add(out, rel, _line(text, m.start()), "sec-command-injection", "`%s(%s)`" % (m.group(1), first_raw[:50]), alarm=bool(TAINT.search(first_raw)))
+            add(out, rel, _line(text, m.start()), "sec-command-injection", "`%s(%s)`" % (m.group(1), first_raw[:50]), alarm=bool(taint_re.search(value_of(first_raw, m.start()))))
     # --- NoSQL / mass assignment
     for m in re.finditer(r"\.(find|findOne|findOneAndUpdate|updateOne|updateMany|deleteOne|deleteMany|countDocuments|where)\s*\(\s*(req\.(body|query|params)|\{\s*\.\.\.req\.(body|query))\s*[,)]", code):
         add(out, rel, _line(text, m.start()), "sec-nosql-injection", "`.%s(%s)`" % (m.group(1), m.group(2)), alarm=True)
-    for m in re.finditer(r"\$where\b", code):
-        if TAINT.search(text[m.start():m.start() + 200]):
-            add(out, rel, _line(text, m.start()), "sec-nosql-injection", "$where with request data", alarm=True)
+    for m in re.finditer(r"\$where\b\s*['\"]?\s*:\s*", code):
+        e = m.end()
+        stop = min([x for x in (code.find(",", e), code.find("}", e), code.find("\n", e)) if x > 0] or [len(code)])
+        val = text[e:stop]
+        if "${" in val or re.search(r"['\"`]\s*\+|\+\s*['\"`]|^\s*[A-Za-z_$]", val):
+            add(out, rel, _line(text, m.start()), "sec-nosql-injection", "$where built from text: %s" % val.strip()[:40],
+                alarm=bool(taint_re.search(value_of(val, m.start()))))
+    for m in re.finditer(r"\.(find|findOne|update|updateOne|updateMany|deleteOne|deleteMany|remove|count|countDocuments|findOneAndUpdate|"
+                         r"findOneAndDelete|findOneAndRemove)\s*\(\s*\{[^{}]*?:\s*(req\.(body|query)\.[\w$.]+)\s*[,}]", code):
+        obj_start = code.find("{", m.start())
+        obj_end = _match_close(code, obj_start)
+        if m.group(1).startswith(("update", "findOneAndUpdate")) and not re.match(r"\s*,", code[obj_end + 1:obj_end + 4]):
+            continue                                # user.update({ name: ... }) sets data - it is not a filter
+        add(out, rel, _line(text, m.start()), "sec-nosql-injection", "filter value `%s` straight from the request" % m.group(2))
     for m in re.finditer(r"\b(?:new\s+[A-Z]\w*|[A-Z]\w*\.(?:create|insertMany|insert|build|update|findByIdAndUpdate|findOneAndUpdate|upsert)|"
                          r"Object\.assign\s*\(\s*[\w$.]+)\s*\(?\s*,?\s*(req\.body)\s*[,)]", code):
         add(out, rel, _line(text, m.start()), "sec-mass-assignment", "`%s`" % " ".join(raw(m.start(), m.end()).split())[:50])
@@ -578,17 +703,59 @@ def check_js(rel, text):
                          r"fsp?\.(readFile|unlink|rm))\s*\(", code):
         a, b = call_args(m.end() - 1)
         first = raw(a, a + len(_split_top(code[a:b], ",")[0][1]))
-        if TAINT.search(first) and not re.search(r"basename|sanitize|normalize\([^)]*\)\.startsWith|root\s*:", raw(a, b)):
+        if taint_re.search(value_of(first, m.start())) and not re.search(r"basename|sanitize|normalize\([^)]*\)\.startsWith|root\s*:", raw(a, b)):
             add(out, rel, _line(text, m.start()), "sec-path-traversal", "`%s(%s)`" % (m.group(1), first.strip()[:40]))
     for m in re.finditer(r"\bres\.redirect\s*\(", code):
         a, b = call_args(m.end() - 1)
-        if TAINT.search(raw(a, b)) and not re.search(r"(?i)allow|safe|startsWith\(['\"]/", text[max(0, m.start() - 300):m.start()]):
+        if taint_re.search(value_of(raw(a, b), m.start())) and not re.search(r"(?i)allow|safe|startsWith\(['\"]/", text[max(0, m.start() - 300):m.start()]):
             add(out, rel, _line(text, m.start()), "sec-open-redirect", "`res.redirect(%s)`" % raw(a, b).strip()[:40])
-    for m in re.finditer(r"\b(fetch|axios(\.(get|post|request))?|got|request|http\.get|https\.get)\s*\(", code):
+    for m in re.finditer(r"\b(fetch|axios(\.(get|post|request))?|got|request|http\.get|https\.get|needle(\.(get|post|request))?|"
+                         r"superagent(\.(get|post))?|bent|undici\.request|nodeFetch)\s*\(", code):
         a, b = call_args(code.find("(", m.start()))
         first = raw(a, a + len(_split_top(code[a:b], ",")[0][1]))
-        if re.search(r"\breq\.(query|body|params)", first) and not re.search(r"(?i)allow|whitelist|safe", text[max(0, m.start() - 300):m.start()]):
+        if re.search(r"\breq\.(query|body|params)|\b(params|query|body)\.\w+", value_of(first, m.start())) and \
+                (taint_re.search(value_of(first, m.start()))) and not re.search(r"(?i)allow|whitelist|safe", text[max(0, m.start() - 300):m.start()]):
             add(out, rel, _line(text, m.start()), "sec-ssrf", "`%s(%s)`" % (m.group(1), first.strip()[:40]))
+    # --- more ways to run text as code, load unsafe data, read XML with outside files
+    for m in re.finditer(r"\b(math|mathjs)\s*\.\s*(eval|evaluate)\s*\(", code):
+        a, b = call_args(m.end() - 1)
+        if re.search(r"[A-Za-z_$]", code[a:b]):
+            add(out, rel, _line(text, m.start()), "sec-code-injection", "`%s.%s(%s)`" % (m.group(1), m.group(2), raw(a, b)[:40]),
+                alarm=bool(taint_re.search(value_of(raw(a, b), m.start()))))
+    for m in re.finditer(r"\bvm\.(runInContext|runInNewContext|runInThisContext|compileFunction)\s*\(|\bnew\s+vm\.Script\s*\(", code):
+        a, b = call_args(code.find("(", m.start()))
+        first = _split_top(code[a:b], ",")[0][1].strip()
+        if first and not re.fullmatch(r"(['\"`])\s*\1", first):
+            add(out, rel, _line(text, m.start()), "sec-code-injection", "`vm` runs `%s`" % raw(a, b)[:40], alarm=bool(taint_re.search(value_of(raw(a, b), m.start()))))
+    if re.search(r"""require\(\s*['"]node-serialize['"]|from\s+['"]node-serialize['"]""", text):
+        for m in re.finditer(r"\.unserialize\s*\(", code):
+            a, b = call_args(m.end() - 1)
+            add(out, rel, _line(text, m.start()), "sec-unsafe-deserialize", "node-serialize `unserialize(%s)` can run code inside the data" % raw(a, b)[:30],
+                alarm=True)
+    for m in re.finditer(r"\b(parseXml|parseXmlString|parseXmlAsync)\s*\(", code):
+        a, b = call_args(m.end() - 1)
+        if re.search(r"noent\s*:\s*true", raw(a, b)):
+            add(out, rel, _line(text, m.start()), "sec-xxe", "`%s(..., { noent: true })`" % m.group(1), alarm=bool(taint_re.search(value_of(raw(a, b), m.start()))))
+    for m in re.finditer(r"\bXML_PARSE_(NOENT|DTDLOAD)\b|\bParseOption\.(NOENT|DTDLOAD)\b", code):
+        add(out, rel, _line(text, m.start()), "sec-xxe", "`%s` - the XML reader loads outside files" % m.group(0))
+        break
+    for m in re.finditer(r"\bautoescape\s*:\s*false\b", code):
+        add(out, rel, _line(text, m.start()), "sec-xss", "`autoescape: false` - every value is put into pages as HTML")
+    for m in re.finditer(r"\.bypassSecurityTrust(Html|Script|Style|Url|ResourceUrl)\s*\(", code):
+        a, b = call_args(m.end() - 1)
+        v = raw(a, b).strip()
+        if v and not re.fullmatch(r"(['\"])[^'\"]*\1", v):
+            add(out, rel, _line(text, m.start()), "sec-xss", "`bypassSecurityTrust%s(%s)` switches Angular's protection off" % (m.group(1), v[:30]),
+                alarm=bool(taint_re.search(value_of(v, m.start()))))
+    for m in re.finditer(r"""\b(createHmac|createCipheriv|createDecipheriv)\s*\(\s*(['"])[^'"]+\2\s*,\s*(['"])([^'"]{8,})\3""", text):
+        if code[m.start():m.start() + 4] == text[m.start():m.start() + 4]:
+            add(out, rel, _line(text, m.start()), "sec-hardcoded-password", "%s(..., \"%s...\") - the key is in the code" % (m.group(1), m.group(4)[:3]))
+    for m in re.finditer(r"(?<![\w$)\]])/((?:\\.|\[[^\]\n]*\]|[^/\n\[])+)/[gimsuyd]*", text):
+        if code[m.start()] == "/" and REDOS.search(m.group(1)) and not code[m.start() + 1:m.start() + 2].strip():
+            add(out, rel, _line(text, m.start()), "sec-redos", "`/%s/`" % m.group(1)[:40])
+    for m in re.finditer(r"""\bnew\s+RegExp\s*\(\s*(['"])((?:\\.|(?!\1).)+)\1""", text):
+        if REDOS.search(m.group(2).replace("\\\\", "\\")):
+            add(out, rel, _line(text, m.start()), "sec-redos", "`new RegExp(\"%s\")`" % m.group(2)[:40])
     # --- tokens
     for m in re.finditer(r"\b(?:const|let|var)\s+(\w*(?:token|otp|password|secret|code|nonce|salt|resetCode|apiKey)\w*)\s*=\s*[^;\n]*Math\.random\(\)", code, re.I):
         add(out, rel, _line(text, m.start()), "sec-insecure-random", "`%s` made with Math.random()" % m.group(1))
@@ -653,6 +820,32 @@ def check_js_routes(rel, text, code):
     return out
 
 
+# =================================================================================================== templates
+TEMPLATE_EXT = ("ejs", "hbs", "handlebars", "mustache", "pug", "jade", "njk", "j2", "jinja", "jinja2", "twig", "html", "htm")
+
+
+def check_template(rel, text, ext):
+    """Places where a template prints a value WITHOUT escaping it - visitor text there becomes HTML/script."""
+    out = []
+    pats = []
+    if ext == "ejs" or "<%-" in text:
+        pats.append((r"<%-\s*(?!include\b|partial\b|body\b|block\b|-|\s*%>)([^%]{1,80})%>", "<%%- %s %%> prints it as HTML"))
+    if ext in ("hbs", "handlebars", "mustache") or "{{{" in text:
+        pats.append((r"\{\{\{\s*(?![>#/!])([^}]{1,60})\}\}\}", "{{{%s}}} prints it as HTML"))
+    if ext in ("pug", "jade"):
+        pats.append((r"!\{([^}]{1,60})\}|\w!=\s*([^\n]{1,60})", "!{%s} prints it as HTML"))
+    if ext in ("html", "htm", "njk", "j2", "jinja", "jinja2", "twig"):
+        pats.append((r"\{\{\s*([^{}|]{1,60}?)\s*\|\s*safe\s*\}\}", "{{ %s|safe }} prints it as HTML"))
+        pats.append((r"\{%-?\s*autoescape\s+(off|false)\s*-?%\}", "{%% autoescape %s %%} switches escaping off"))
+    for pat, msg in pats:
+        for m in re.finditer(pat, text):
+            val = next((g for g in m.groups() if g), "").strip()
+            if re.search(r"(?i)csrf|tojson|json_script|\bjson\b|stylesheet|static|svg_icon|icon\b|^ ?include|^ ?body$|^ ?content_for", val):
+                continue
+            add(out, rel, _line(text, m.start()), "sec-xss", msg % val[:40])
+    return out
+
+
 # =================================================================================================== run
 def check(root):
     project = dedupe.Project(root)
@@ -671,7 +864,7 @@ def check(root):
         base = posixpath.basename(rel)
         textual = ext in ("py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "json", "yml", "yaml", "toml", "ini", "cfg",
                           "conf", "env", "properties", "xml", "sh", "ps1", "rb", "php", "go", "java", "kt", "cs", "swift", "dart", "tf",
-                          "html", "md", "txt") or base.startswith(".env") or base in ("Dockerfile", "docker-compose.yml")
+                          "html", "md", "txt") + TEMPLATE_EXT or base.startswith(".env") or base in ("Dockerfile", "docker-compose.yml")
         if not textual:
             continue
         try:
@@ -688,6 +881,8 @@ def check(root):
                 continue
             if ext == "py":
                 found += check_python(rel, text)
+            elif ext in TEMPLATE_EXT:
+                found += check_template(rel, text, ext)
             elif ext in ("js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte"):
                 fs = check_js(rel, text)
                 if next_mw and AUTH_WORDS.search(next_mw):
