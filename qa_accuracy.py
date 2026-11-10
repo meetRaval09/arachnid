@@ -71,10 +71,29 @@ def build(d):
     w(d / "safe_api.py", "import requests\n\n\ndef pull(token):\n"
                          "    return requests.get('https://api.example.com/v1/items', headers={'Authorization': token}, timeout=10)\n")
     w(d / "names.py", "def describe(cat):\n    return 'the cat is ' + cat\n")
+    # HTML the browser quietly rewrites, and a page whose script crashes while loading
+    w(d / "web/about.html", '<!doctype html><html lang="en"><head><title>About</title></head><body>\n'
+                            '<p class="lead">Our story\n  <div class="note">since 2020</div>\n</p>\n'
+                            '<p>Price &nbps; 10</p>\n<script src="about.js"></script>\n</body></html>\n')
+    w(d / "web/about.js", 'const box = document.getElementById("story");\nbox.textContent = "Hello";\n')
+    w(d / "web/about_ok.html", '<!doctype html><html lang="en"><head><title>About</title></head><body>\n'
+                               '<div class="lead">Our story\n  <div class="note">since 2020</div>\n</div>\n'
+                               '<p>One<p>Two &nbsp; &copy; 2024 R&amp;D</p>\n<a href="/x"><div>whole card</div></a>\n'
+                               '<table><tr><td>1</td></tr></table>\n<script src="about_ok.js"></script>\n</body></html>\n')
+    w(d / "web/about_ok.js", 'const box = document.querySelector(".lead");\nif (box) box.title = "Hello";\n')
+    # works on Windows, 404 on a Linux server; a switch that stays on; text saved in the wrong encoding
+    w(d / "web/img/logo.png", "png")
+    w(d / "web/contact.html", '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact</title></head><body>\n'
+                              '<img src="img/Logo.PNG" alt="logo">\n<button type="button" disabled="false">Send</button>\n'
+                              '<p>We\u00e2\u20ac\u2122re open every day</p>\n</body></html>\n')
+    w(d / "web/contact_ok.html", '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Contact</title></head><body>\n'
+                                 '<img src="img/logo.png" alt="logo">\n<button type="button" disabled>Send</button>\n'
+                                 '<p>We\u2019re open every day \u2014 caf\u00e9</p>\n'
+                                 '<form action="/up" method="post" enctype="multipart/form-data"><input type="file" name="f"></form>\n</body></html>\n')
     # a page using an installed package and an inline script that sets .src from a variable (both fine)
     w(d / "package.json", json.dumps({"name": "demo", "private": True, "dependencies": {"@fontsource/press-start-2p": "5.0.0"}}))
     w(d / "web/player.html", '<!doctype html><html><head><link rel="stylesheet" href="../node_modules/@fontsource/press-start-2p/index.css">'
-                             '</head><body><p>Player</p><script>const a = new Audio(); a.src = songs[i].blob; a.src = track.url;</script></body></html>')
+                             '</head><body><p>Player</p><script>function play(songs, i, track) { const a = new Audio(); a.src = songs[i].blob; a.src = track.url; }</script></body></html>')
 
 
 # (what, file, tools that may report it, words one of which must appear in the message)
@@ -99,12 +118,18 @@ PLANTED = [
     ("JavaScript return before a line break", "web/cart.js", {"bugs"}, ["return"]),
     ("misspelled CSS property", "web/theme.css", {"bugs"}, ["colr"]),
     ("Markdown link to a missing file", "docs/links.md", {"bugs"}, ["setup.md"]),
+    ("block inside a paragraph (browser ends the <p> early)", "web/about.html", {"bugs"}, ["paragraph"]),
+    ("misspelled character code &nbps;", "web/about.html", {"bugs"}, ["nbps"]),
+    ("JavaScript error while the page loads (real browser)", "web/about.js", {"pages"}, ["null"]),
+    ("file path whose capital letters differ (404 on Linux servers)", "web/contact.html", {"links"}, ["capital letters"]),
+    ("disabled=\"false\" still disables", "web/contact.html", {"bugs"}, ["still on"]),
+    ("garbled characters (wrong encoding)", "web/contact.html", {"bugs"}, ["garbled"]),
     ("SQL injection from a web request", "server/users.py", {"security"}, ["database query"]),
     ("visitor text put into the page as HTML", "web/comments.js", {"security"}, ["html"]),
     ("AWS key written in the code", "server/keys.py", {"security"}, ["aws"]),
     ("delete route with no login check", "server/routes.js", {"security"}, ["login"]),
 ]
-DECOYS = ["server/users_ok.py", "web/comments_ok.js", "server/keys_ok.py", "server/routes_ok.js", "orders_ok.py", "web/cart_ok.js", "web/theme_ok.css", "docs/links_ok.md", "shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html"]
+DECOYS = ["server/users_ok.py", "web/comments_ok.js", "server/keys_ok.py", "server/routes_ok.js", "orders_ok.py", "web/cart_ok.js", "web/theme_ok.css", "docs/links_ok.md", "shop_ok.py", "docs/clean.md", "good.py", "good.js", "web/ok.html", "web/ok.css", "safe_api.py", "names.py", "web/player.html", "web/about_ok.html", "web/about_ok.js", "web/contact_ok.html"]
 IGNORE_KINDS_ON_DECOYS = {"unused-file"}          # "nothing links to this file" ideas are true for a practice project
 
 

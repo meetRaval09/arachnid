@@ -108,7 +108,7 @@ Run one round with `--round 7`, list them with `--list`. Run only one copy at a 
 `python qa_accuracy.py` hides 15 known problems in a practice project (typos, grammar, brand spelling, broken Python and
 JavaScript, a missing stylesheet, an http script, duplicate files, an unused import, a function defined twice, a secret
 key in a URL, certificate checks switched off, a request without a timeout, a slow lookup list) next to 7 clean
-look-alike files. It scores how many problems were FOUND (goal: 24 of 24) and how many FALSE complaints were made about
+look-alike files. It scores how many problems were FOUND (goal: 30 of 30) and how many FALSE complaints were made about
 the clean files (goal: 0). Add `--esbuild <path to node_modules>` to test the stronger JavaScript reader too.
 
 ## Automatic checks on GitHub (github/arachnid.yml)

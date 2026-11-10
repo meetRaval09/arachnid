@@ -79,6 +79,10 @@ def check(root):
     for rel in files:
         by_name.setdefault(posixpath.basename(rel).lower(), []).append(rel)
     exists = lambda p: p in files
+    lower = {}
+    for f in files:
+        lower.setdefault(f.lower(), f)
+    exists_ci = lambda p: p.lower() in lower
     packages = declared_packages(root)
     out = []
     pages = 0
@@ -92,6 +96,8 @@ def check(root):
             continue
         pages += 1
         scripts = script_ranges(text) if ext in ("html", "htm") else []
+        # <base href="..."> moves every relative path of the page somewhere else - only paths from the root are checked
+        has_base = ext in ("html", "htm") and re.search(r"<base\s[^>]*href", text, re.I)
         for r in dedupe.find_refs(rel, text):
             raw, _s = dedupe.split_suffix(r.raw)
             if r.kind not in ("attr", "url", "srcset") or not raw or SKIP_SCHEME.match(raw) or TEMPLATE.search(raw):
@@ -106,7 +112,17 @@ def check(root):
                     continue
                 if tag_before(text, r.start) in ("a", "area", "form", "meta", "base"):
                     continue                               # links to other pages may be served by routes
+            if has_base and not raw.startswith("/"):
+                continue
             if dedupe.resolve(project, r, exists):
+                continue
+            ci = dedupe.resolve(project, r, exists_ci)
+            if ci:
+                real = lower[ci[0][0].lower()]
+                out.append({"file": rel, "line": text.count("\n", 0, r.start) + 1, "ref": r.raw, "severity": "warning", "kind": "wrong-case",
+                            "note": "only the capital letters differ - the file is called %s. It works on Windows and Mac, but "
+                                    "a Linux web server (where most websites live) treats them as different names and "
+                                    "answers 404 (Not found)" % real})
                 continue
             pkg = package_of(raw.replace("\\", "/"))
             if pkg and pkg in packages:
@@ -137,6 +153,11 @@ def main():
         print("\n  %s  line %d   [%s]" % (f["file"], f["line"], f["severity"].upper()))
         print("     points to : %s" % f["ref"])
         print("     problem   : %s" % f["note"])
+        if f.get("kind") == "wrong-case":
+            ledger.record("links", "found", f["severity"], f["file"], f["line"], "points to %s, but %s" % (f["ref"], f["note"]),
+                          "the page works on your computer and breaks once it is online", "write the name exactly as the file is named",
+                          "wrong-case")
+            continue
         ledger.record("links", "found", f["severity"], f["file"], f["line"], "points to %s, but %s" % (f["ref"], f["note"]),
                       "visitors get a missing picture, script or style sheet on this page",
                       "restore the file, or correct the path in the page", "missing-file")

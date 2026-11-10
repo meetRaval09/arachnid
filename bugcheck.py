@@ -190,6 +190,159 @@ RULES = {
     "html-missing-function": ("decision", "a click that calls a function that does not exist",
                               "no script in the project defines this function, so the click shows an error in the console and does nothing",
                               "fix the name, or add the function"),
+    "html-p-closed-early": ("decision", "a block inside a paragraph",
+                            "a <p> cannot hold blocks such as <div>, <ul>, <table> or headings: the browser silently ENDS the "
+                            "paragraph before the block, so the block is no longer inside it (its paragraph styles are lost) "
+                            "and the later </p> becomes an extra empty paragraph",
+                            "change the <p> to a <div>, or close the paragraph before the block"),
+    "html-link-in-link": ("decision", "a link inside a link",
+                          "links cannot be nested: the browser ENDS the first link where the second one starts, so part of "
+                          "what you meant to be clickable is not", "close the first link before the second, or use one link"),
+    "html-form-in-form": ("decision", "a form inside a form",
+                          "the browser IGNORES the inner <form> tag completely: its fields are sent with the OUTER form, "
+                          "to the outer form's address", "close the first form before starting the second"),
+    "html-button-in-button": ("decision", "a button inside a button",
+                              "the browser ENDS the first button where the second one starts, so the page does not have the "
+                              "shape you wrote", "close the first button before the second"),
+    "html-interactive-inside": ("idea", "something clickable inside a button or link",
+                                "a link, button or form field inside a <button> or <a> is not allowed; which one receives the "
+                                "click differs between browsers, and screen readers announce it badly",
+                                "put them next to each other instead of one inside the other"),
+    "html-li-outside-list": ("decision", "a list item without a list",
+                             "an <li> must be inside <ul>, <ol> or <menu>; on its own it is laid out wrongly and screen "
+                             "readers do not treat it as a list", "wrap the items in <ul> (or <ol>)"),
+    "html-self-closing": ("decision", "a tag that cannot close itself",
+                          "in HTML the / in <div /> is IGNORED: the element stays open and swallows everything after it "
+                          "(only empty elements like <br>, <img>, <input> may be written this way)",
+                          "write the closing tag: <div></div>"),
+    "html-outside-table-cell": ("decision", "content that the browser moves OUT of the table",
+                                "text or elements placed directly inside <table> or <tr> (not inside a <td>/<th>) are "
+                                "taken out and shown ABOVE the table - View Source and Inspect disagree",
+                                "put it inside a <td> / <th>, or in a <caption>"),
+    "html-unclosed-quote": ("decision", "an attribute quote that never closes",
+                            "everything up to the next quote mark - including other tags - is swallowed into this "
+                            "attribute, so those tags disappear from the page", "add the missing closing quote"),
+    "html-stray-character": ("decision", "a stray character shown on the page",
+                             "an extra > or quote after a tag is shown to visitors as text (or becomes a broken attribute)",
+                             "remove the extra character"),
+    "html-bad-entity": ("decision", "a character code the browser does not know",
+                        "an unknown &code; is shown literally on the page (for example the text '&nbps;')",
+                        "fix the spelling of the code"),
+    "html-ambiguous-entity": ("decision", "text that the browser turns into a symbol",
+                              "browsers read some codes even without the ; at the end, so '&copy2024' shows as '\u00a92024' "
+                              "and '&reg=1' as '\u00ae=1'", "write & as &amp; in this text"),
+    "css-table-tr": ("decision", "a style or selector for table rows that never matches",
+                     "browsers always put rows inside a <tbody> (even if you did not write one), so `table > tr` finds "
+                     "nothing", "use `table tr` or `table > tbody > tr`"),
+    "html-boolean-false": ("decision", "an on/off attribute set to \"false\" - it is still ON",
+                           "for disabled, checked, hidden, required ... only whether the attribute is THERE counts; "
+                           "disabled=\"false\" still disables", "remove the attribute to switch it off"),
+    "html-data-case": ("decision", "a data- attribute with capital letters, read from a script",
+                       "HTML turns attribute names into lowercase, so data-userId becomes data-userid and the script's "
+                       "dataset.userId is undefined", "write it data-user-id (it is then read as dataset.userId)"),
+    "html-file-form": ("decision", "a file upload form that sends only the file NAME",
+                       "a form with a file field needs method=\"post\" and enctype=\"multipart/form-data\"; without them "
+                       "the server receives the name of the file but not the file", "add method=\"post\" enctype=\"multipart/form-data\" to the <form>"),
+    "html-field-no-name": ("decision", "a form field whose value is never sent",
+                           "when the form is submitted, only fields with a name are sent to the server", "add name=\"...\" to the field"),
+    "html-tag-in-head": ("decision", "a visible tag inside <head>",
+                         "the browser ENDS <head> at this tag, so the head tags written after it (meta, link, title ...) "
+                         "end up in the body, where some of them no longer work", "move the tag into <body>"),
+    "html-end-br": ("decision", "</br> adds an extra line break",
+                    "there is no closing tag for <br>; browsers read </br> as ANOTHER <br>", "write <br>"),
+    "html-nested-quote": ("decision", "a quote inside an attribute that cuts it short",
+                          "a \" inside a \"...\" value ends the value there; the rest becomes broken attributes",
+                          "write the inner quotes as &quot; or use ' around the value"),
+    "text-garbled": ("decision", "garbled characters in the text",
+                     "text like \u00e2\u20ac\u2122 is what \u2019 or \u00e9 turn into when a file is saved in one character "
+                     "encoding and read in another; visitors see the garbage", "retype the character, and save the file as UTF-8"),
+    "html-no-charset": ("idea", "the page does not say its character encoding",
+                        "the page has letters outside plain English; without <meta charset=\"utf-8\"> some servers make them "
+                        "show as garbage (\u00e2\u20ac\u2122)", "add <meta charset=\"utf-8\"> as the first tag in <head>"),
+    "html-list-child": ("idea", "something other than <li> directly inside a list",
+                        "only <li> belongs directly inside <ul> / <ol>; screen readers count the items wrongly",
+                        "wrap it in an <li>"),
+    "html-heading-skip": ("idea", "a heading level is skipped",
+                          "headings work like a table of contents (h1 > h2 > h3); jumping from h1 to h4 confuses screen "
+                          "readers and search engines", "use the next level, and change the size with CSS"),
+    "html-aria-hidden-focus": ("idea", "a hidden-from-screen-readers element that can still be clicked or tabbed to",
+                               "aria-hidden=\"true\" hides it from screen readers, but keyboard users still land on it - "
+                               "and hear nothing", "remove aria-hidden, or add tabindex=\"-1\""),
+    "html-base-tag": ("idea", "a <base> tag changes every relative path on the page",
+                      "all links, pictures and scripts written without a leading / are looked up from the <base> address, "
+                      "not next to the page", "make sure that is intended; Arachnid checks only the / paths on this page"),
+    "html-bad-media": ("decision", "a stylesheet for a screen type that does not exist",
+                       "the browser does not know this media type, so the stylesheet (or @media block) NEVER applies",
+                       "fix the spelling (screen, print, all ...)"),
+    "html-comment-unclosed": ("decision", "a comment that never closes",
+                              "a comment ends only at -->; with '-- >' (a space) or no end, everything after it - tags, "
+                              "text, buttons - is hidden inside the comment", "write the end as -->"),
+    "html-double-escaped": ("decision", "a character code written twice",
+                            "&amp;copy; shows the text '&copy;' on the page instead of the symbol", "write &copy; (only one &amp;)"),
+    "html-bad-form-method": ("decision", "a form method that does not exist",
+                             "an unknown method is silently treated as GET: the form data is put into the address bar "
+                             "instead of being posted", "use method=\"post\" or method=\"get\""),
+    "html-bad-button-type": ("decision", "a button with a misspelled type",
+                             "an unknown type makes the button a SUBMIT button: clicking it sends the form",
+                             "use type=\"button\", \"submit\" or \"reset\""),
+    "html-min-max": ("decision", "a field whose minimum is bigger than its maximum",
+                     "no value can ever pass the check, so the form can never be sent", "swap or fix min and max"),
+    "html-radio-name": ("decision", "one group of radio buttons with two different names",
+                        "radio buttons only work as a group when the name is EXACTLY the same; with a different capital "
+                        "letter they are separate groups, so the visitor can tick both", "use exactly the same name"),
+    "html-multi-selected": ("decision", "two options marked selected",
+                            "a list that allows one choice keeps only the LAST selected option", "keep selected on one option"),
+    "html-form-shadow": ("decision", "a field named like a form command",
+                         "a field called name=\"submit\" (or id) replaces form.submit, so form.submit() in the script "
+                         "crashes with 'form.submit is not a function'", "rename the field, e.g. name=\"send\""),
+    "html-form-missing": ("decision", "a field or button connected to a form that does not exist",
+                          "form=\"...\" must be the id of a form on the page; otherwise the button does nothing",
+                          "make form=\"...\" match the form's id"),
+    "html-missing-anchor": ("decision", "a link to a place on the page that does not exist",
+                            "#name jumps to the element with id=\"name\"; there is none, so the click does nothing",
+                            "match the link and the id"),
+    "html-missing-page": ("decision", "a link to a page that does not exist",
+                          "visitors who click it get a 404 (Not found) page", "fix the link, or add the page"),
+    "html-no-scheme": ("decision", "a web address without https://",
+                       "without https:// the browser treats www.site.com as a FILE on your own site, and shows 404",
+                       "write https://www..."),
+    "html-local-path": ("decision", "a path on your own computer",
+                        "C:\\... and file:/// paths only exist on the computer that wrote the page; everybody else "
+                        "(and the live site) gets nothing", "put the file in the project and use a relative path"),
+    "html-module-handler": ("decision", "a click calls a function that is hidden inside a module",
+                            "functions in <script type=\"module\"> are NOT visible to onclick=\"...\"; the click shows "
+                            "'... is not defined' in the console", "attach the click in the module (addEventListener), or "
+                            "add window.NAME = NAME"),
+    "html-hidden-price": ("idea", "a price sent from a hidden field",
+                          "visitors can change hidden fields (DevTools) and pay any price they like - unless the server "
+                          "looks the price up again", "send only the product id, and take the price from the server"),
+    "js-value-on-text": ("decision", ".value on an element that has no value",
+                         "only form fields (input, select, textarea ...) have .value; on a <span>/<div> reading gives "
+                         "undefined and writing changes nothing on screen", "use .textContent"),
+    "js-checkbox-value": ("decision", "a checkbox tested with .value",
+                          "a checkbox's .value is its fixed text ('on'), never empty, so the test is ALWAYS true",
+                          "use .checked"),
+    "js-value-plus": ("decision", "a number added to a form value - the result is TEXT",
+                      "a form field's .value is always text, so + glues them together: 499 + \"1\" gives \"4991\"",
+                      "convert first: Number(x.value) or x.valueAsNumber"),
+    "js-storage-object": ("decision", "an object saved to storage as '[object Object]'",
+                          "localStorage only keeps text; an object or list is saved as the useless text '[object Object]'",
+                          "save JSON.stringify(value), read with JSON.parse(...)"),
+    "js-json-not-called": ("decision", "a .json (or .text) that is never called",
+                           "without () you get the FUNCTION, not the data, so the next step works with nothing",
+                           "write r.json()"),
+    "css-missing-time-unit": ("decision", "a time without s or ms",
+                              "transition / animation times need a unit; `0.3` alone makes the browser ignore the whole line",
+                              "write 0.3s"),
+    "css-zindex-no-position": ("idea", "z-index that may have no effect",
+                               "z-index only works on positioned elements (position: relative/absolute/fixed/sticky) or "
+                               "flex/grid children", "add position: relative if it is needed"),
+    "html-old-tag": ("idea", "an outdated HTML tag",
+                     "this tag was removed from HTML; it still works in browsers today but may stop, and screen readers "
+                     "ignore its meaning", "use CSS instead (text-align, font-family, animation ...)"),
+    "html-zoom-blocked": ("idea", "zooming is switched off on phones",
+                          "user-scalable=no / maximum-scale=1 stops people with poor eyesight from zooming in",
+                          "remove user-scalable=no and maximum-scale from the viewport tag"),
     "html-no-doctype": ("idea", "the page has no <!doctype html>",
                         "without it browsers use 'quirks mode', where some sizes and layouts behave differently", "add <!doctype html> as the first line"),
     "html-no-viewport": ("idea", "the page is not set up for phones",
@@ -925,49 +1078,454 @@ TEMPLATE_MARK = re.compile(r"\{\{|\{%|<%|\$\{|\[\[|@\{|\{#")
 NUMBER_FIELD = re.compile(r"(?i)(qty|quantity|amount|price|total|count|age|weight|stock|units|seats|guests|tickets|items|pay)")
 
 
+CONTROL_FLOW = re.compile(r"\{%|<%|<\?|\{\{\s*[#/^]|\{#|@(if|for|switch|else|foreach|section)\b|\bng-template\b|\*ng(If|For)")
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr", "keygen",
+        "basefont", "bgsound", "frame", "image"}
+KNOWN_TAGS = VOID | set("""a abbr address article aside audio b bdi bdo blockquote body button canvas caption cite code colgroup data
+datalist dd del details dfn dialog div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup html i
+iframe ins kbd label legend li main map mark menu meter nav noscript object ol optgroup option output p picture pre progress q rp rt
+ruby s samp script search section select slot small span strong style sub summary sup table tbody td template textarea tfoot th
+thead time title tr u ul var video center font marquee""".split())
+CLOSES_P = set("""address article aside blockquote center details dialog dir div dl fieldset figcaption figure footer form h1 h2 h3 h4
+h5 h6 header hgroup hr main menu nav ol pre search section summary ul listing xmp plaintext li dd dt""".split())
+SCOPE_STOP = {"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template", "svg", "math"}
+HEAD_OK = {"meta", "link", "title", "style", "script", "base", "noscript", "template", "head", "html", "body"}
+TABLE_PARTS = {"table", "tbody", "thead", "tfoot", "tr"}
+TABLE_OK = {"caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "td", "th", "script", "template", "style", "form"}
+OLD_TAGS = {"center", "font", "marquee", "blink", "big", "strike", "tt", "frame", "frameset", "acronym", "applet", "basefont", "dir",
+            "isindex", "spacer", "xmp", "listing", "plaintext"}
+PLAIN_ATTRS = {"href", "src", "class", "id", "type", "name", "for", "rel", "action", "method", "width", "height", "lang", "target",
+               "role", "srcset", "media", "charset"}
+
+
 class _Page(HTMLParser):
-    def __init__(self):
+    """Reads a page roughly the way a browser builds it, keeping track of which elements are open, so that the places
+    where the browser silently REWRITES the page (ends a paragraph early, ignores a form, moves text out of a table)
+    can be pointed out."""
+
+    def __init__(self, quirks_unknown=True):
         super().__init__(convert_charrefs=True)
-        self.tags = []              # (tag, [(name, value)], line)
+        self.tags = []              # (tag, [(name, value)], line, inside a form)
         self.scripts = []           # (attrs, code, first line)
+        self.styles = []            # (css, first line)
         self.form_depth = 0
         self.in_script = None
+        self.in_style = None
         self.buf = []
         self.decl = False
+        self.stack = []             # open elements: (tag, line)
+        self.nest = []              # (line, kind, detail)  - where the browser rewrites the page
+        self.p_closer = None        # (tag, line, p line): a block that silently ended a paragraph
+        self.unparsed = []          # (line, text) - a tag that never ends
+        self.forms = []             # {"attrs", "line", "fields": [(tag, attrs, line)]}
+        self.form_stack = []
+        self.head_closer = None     # (tag, line) - a body tag that ended <head> early
+        self.after_head_close = []  # head-only tags that came after it
+        self.end_br = []
+        self.headings = []          # (level, line)
+        self.select = None          # [line, multiple, [selected option lines]]
+        self.multi_selected = []    # (select line, option lines)
+
+    # ---- helpers
+    def _in(self, names, stop=SCOPE_STOP):
+        for t, ln in reversed(self.stack):
+            if t in names:
+                return (t, ln)
+            if t in stop:
+                return None
+        return None
+
+    def _pop_to(self, names, stop=SCOPE_STOP):
+        if self._in(names, stop) is None:
+            return False
+        while self.stack:
+            t, _ = self.stack.pop()
+            if t in names:
+                return True
+        return False
+
+    def _foreign(self):
+        return any(t in ("svg", "math") for t, _ in self.stack)
 
     def handle_decl(self, decl):
         if decl.lower().startswith("doctype"):
             self.decl = True
 
+    def _structure(self, tag, line):
+        if self._foreign():
+            return
+        top = self.stack[-1][0] if self.stack else ""
+        if top in ("ul", "ol") and tag not in ("li", "script", "template"):
+            self.nest.append((line, "html-list-child", "<%s> directly inside <%s>" % (tag, top)))
+        if self._in({"head"}, {"body"}) and tag not in HEAD_OK:
+            if self.head_closer is None:
+                self.head_closer = (tag, line)
+            self._pop_to({"head"}, {"html"})
+        elif self.head_closer and tag in ("meta", "link", "title", "base"):
+            self.after_head_close.append((tag, line))
+        if re.fullmatch(r"h[1-6]", tag):
+            self.headings.append((int(tag[1]), line))
+        if top in TABLE_PARTS and tag not in TABLE_OK and not (tag == "input"):
+            self.nest.append((line, "html-outside-table-cell", "<%s> directly inside <%s>" % (tag, top)))
+        if tag in CLOSES_P or (tag == "table" and self.decl):
+            pl = self._in({"p"}, SCOPE_STOP | {"button"})
+            if pl:
+                self._pop_to({"p"}, SCOPE_STOP | {"button"})
+                self.p_closer = (tag, line, pl[1])
+        if tag == "p":
+            self.p_closer = None
+        if tag == "a":
+            outer = self._in({"a"}, {"table", "td", "th", "template", "caption"})
+            if outer:
+                self.nest.append((line, "html-link-in-link", "the link on line %d is still open" % outer[1]))
+                self._pop_to({"a"}, {"table", "td", "th", "template", "caption"})
+        if tag == "form":
+            outer = self._in({"form"}, {"template"})
+            if outer:
+                self.nest.append((line, "html-form-in-form", "the form on line %d is still open" % outer[1]))
+        if tag == "button":
+            outer = self._in({"button"})
+            if outer:
+                self.nest.append((line, "html-button-in-button", "the button on line %d is still open" % outer[1]))
+                self._pop_to({"button"})
+        if tag in ("a", "button", "input", "select", "textarea") and (tag != "input" or True):
+            host = self._in({"button", "a"} - ({tag} if tag in ("a", "button") else set()), {"table", "td", "th", "template", "svg"})
+            if host and not (tag == "input" and host[0] == "a"):
+                self.nest.append((line, "html-interactive-inside", "<%s> inside the <%s> from line %d" % (tag, host[0], host[1])))
+        if tag == "li":
+            if self._in({"li"}, SCOPE_STOP | {"ul", "ol", "menu"}):
+                self._pop_to({"li"}, SCOPE_STOP | {"ul", "ol", "menu"})
+            if not any(t in ("ul", "ol", "menu", "dir", "template") for t, _ in self.stack):
+                self.nest.append((line, "html-li-outside-list", "<li>"))
+        if tag in ("dd", "dt"):
+            self._pop_to({"dd", "dt"}, SCOPE_STOP | {"dl"})
+        if tag in ("option",):
+            self._pop_to({"option"}, SCOPE_STOP | {"select", "datalist", "optgroup"})
+        if tag == "optgroup":
+            self._pop_to({"option", "optgroup"}, SCOPE_STOP | {"select"})
+        if tag == "tr":
+            self._pop_to({"td", "th", "tr"}, {"table", "tbody", "thead", "tfoot", "template"})
+        if tag in ("td", "th"):
+            self._pop_to({"td", "th"}, {"tr", "table", "template"})
+        if tag in ("tbody", "thead", "tfoot"):
+            self._pop_to({"td", "th", "tr", "tbody", "thead", "tfoot"}, {"table", "template"})
+
+    def _options(self, tag, attrs, line):
+        if tag == "select":
+            self.select = [line, "multiple" in dict(attrs), []]
+        elif tag == "option" and self.select is not None and "selected" in dict(attrs):
+            self.select[2].append(line)
+
     def handle_starttag(self, tag, attrs):
         line = self.getpos()[0]
+        self._options(tag, attrs, line)
         self.tags.append((tag, attrs, line, self.form_depth))
+        self._structure(tag, line)
+        self._form_field(tag, attrs, line)
         if tag == "form":
             self.form_depth += 1
         if tag == "script":
             self.in_script = (dict(attrs), line)
             self.buf = []
+        if tag == "style":
+            self.in_style = line
+            self.buf = []
+        if tag not in VOID:
+            self.stack.append((tag, line))
+
+    def _form_field(self, tag, attrs, line):
+        if tag == "form" and not self.form_stack:
+            self.forms.append({"attrs": dict(attrs), "line": line, "fields": []})
+            self.form_stack.append(len(self.forms) - 1)
+        elif tag in ("input", "select", "textarea") and self.form_stack:
+            self.forms[self.form_stack[-1]]["fields"].append((tag, dict(attrs), line))
 
     def handle_startendtag(self, tag, attrs):
-        self.tags.append((tag, attrs, self.getpos()[0], self.form_depth))
+        line = self.getpos()[0]
+        self.tags.append((tag, attrs, line, self.form_depth))
+        self._form_field(tag, attrs, line)
+        if tag in VOID and not self._foreign():
+            self._structure(tag, line)
+        if tag in VOID or self._foreign() or tag not in KNOWN_TAGS:
+            return
+        self.nest.append((line, "html-self-closing", "<%s ... />" % tag))
+        self.handle_starttag_open(tag, attrs, line)
+
+    def handle_starttag_open(self, tag, attrs, line):
+        # <div/> really is an OPEN <div> for the browser - keep reading the page the way the browser does
+        self._structure(tag, line)
+        if tag == "form":
+            self.form_depth += 1
+        self.stack.append((tag, line))
 
     def handle_endtag(self, tag):
+        line = self.getpos()[0]
+        if tag == "select" and self.select is not None:
+            if not self.select[1] and len(self.select[2]) > 1:
+                self.multi_selected.append((self.select[0], self.select[2]))
+            self.select = None
+        if tag == "br" and not self._foreign():
+            self.end_br.append(line)
         if tag == "form" and self.form_depth:
             self.form_depth -= 1
+            if self.form_depth == 0 and self.form_stack:
+                self.form_stack.pop()
         if tag == "script" and self.in_script:
             self.scripts.append((self.in_script[0], "".join(self.buf), self.in_script[1]))
             self.in_script = None
+        if tag == "style" and self.in_style:
+            self.styles.append(("".join(self.buf), self.in_style))
+            self.in_style = None
+        if tag == "p":
+            if self._in({"p"}, SCOPE_STOP | {"button"}):
+                self._pop_to({"p"}, SCOPE_STOP | {"button"})
+            elif self.p_closer and not self._foreign():
+                t, ln, pl = self.p_closer
+                self.nest.append((ln, "html-p-closed-early", "<%s> inside the <p> from line %d" % (t, pl)))
+                self.p_closer = None
+            return
+        stop = SCOPE_STOP - {tag}
+        if tag in ("tr", "tbody", "thead", "tfoot"):
+            stop = {"table", "template"}
+        self._pop_to({tag}, stop)
 
     def handle_data(self, data):
-        if self.in_script is not None:
+        if self.in_script is not None or self.in_style is not None:
             self.buf.append(data)
+            return
+        if self.stack and self.stack[-1][0] in TABLE_PARTS and data.strip(" \t\r\n\f") and not self._foreign():
+            self.nest.append((self.getpos()[0], "html-outside-table-cell",
+                              "the text \"%s\" directly inside <%s>" % (data.strip()[:30], self.stack[-1][0])))
 
+
+TAG_RE = re.compile(r"<[a-zA-Z][^\s/>]*(?:\s+[^\s=/>\"']+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+))?)*\s*/?>")
+_MASKS = [re.compile(r"<!--.*?-->", re.S), re.compile(r"<(script|style)\b.*?</\1\s*>", re.S | re.I), re.compile(r"<\?.*?\?>", re.S),
+          re.compile(r"<%.*?%>", re.S), re.compile(r"\{\{.*?\}\}", re.S), re.compile(r"\{%.*?%\}", re.S),
+          re.compile(r"\$\{[^}]*\}"), re.compile(r"<!\[CDATA\[.*?\]\]>", re.S), re.compile(r"<!doctype[^>]*>", re.I)]
+_ENT = None
+
+
+def _entities():
+    global _ENT
+    if _ENT is None:
+        import html.entities
+        full = {k[:-1] for k in html.entities.html5 if k.endswith(";")}
+        legacy = sorted((k for k in html.entities.html5 if not k.endswith(";")), key=len, reverse=True)
+        _ENT = (full, legacy)
+    return _ENT
+
+
+def _blank(m):
+    return re.sub(r"[^\n]", " ", m.group(0))
+
+
+def _html_text_traps(rel, text):
+    """Character traps in the visible text of a page: unknown &codes;, &copy2024-style surprises, a stray >."""
+    out = []
+    code = text
+    for rx in _MASKS:
+        code = rx.sub(_blank, code)
+    # a tag followed by one extra >   e.g.  <div class="box">>
+    for m in TAG_RE.finditer(code):
+        e = m.end()
+        name = re.match(r"<([a-zA-Z][\w-]*)", m.group(0)).group(1)
+        if code[e:e + 1] == ">" and code[e + 1:e + 2] != ">" and "=" in m.group(0) and \
+                re.match(r"[ \t]*(\n|$)", code[e + 1:e + 40]) and not re.match(r"\s*</%s\s*>" % re.escape(name), code[e + 1:e + 80], re.I):
+            add(out, rel, _line(text, e), "html-stray-character", "an extra > after %s" % m.group(0)[:40])
+    textonly = TAG_RE.sub(_blank, code)
+    full, legacy = _entities()
+    shown = re.sub(r"<(code|pre|kbd|samp|xmp|textarea)\b.*?</\1\s*>", _blank, text, flags=re.S | re.I)
+    for rx in _MASKS[1:]:
+        shown = rx.sub(_blank, shown)
+    shown = TAG_RE.sub(_blank, re.sub(r"<!--.*?-->", _blank, shown, flags=re.S))
+    dbl = [m for m in re.finditer(r"&amp;([A-Za-z][A-Za-z0-9]*);", shown) if m.group(1) in full and m.group(1) != "amp"]
+    if 0 < len(dbl) <= 3 and not re.search(r"&amp;#", shown):      # many of them = a page that SHOWS the codes on purpose
+        m = dbl[0]
+        add(out, rel, _line(text, m.start()), "html-double-escaped", "`%s` shows \"&%s;\" as text" % (m.group(0), m.group(1)))
+    nocode = re.sub(r"<(script|style)\b.*?</\1\s*>", _blank, text, flags=re.S | re.I)
+    pos = 0
+    while True:
+        a = nocode.find("<!--", pos)
+        if a < 0:
+            break
+        b = nocode.find("-->", a + 4)
+        body = nocode[a + 4:b if b >= 0 else len(nocode)]
+        bad = re.search(r"--[ \t]+>|--!?\s+>", body)
+        if bad and re.search(r"<[a-zA-Z]", body[bad.end():]):
+            add(out, rel, _line(text, a + 4 + bad.start()), "html-comment-unclosed", "`%s` does not end the comment, so the "
+                "page is hidden up to line %s" % (bad.group(0).strip(), _line(text, b) if b >= 0 else "the end"))
+        elif b < 0 and re.search(r"<[a-zA-Z]", body):
+            add(out, rel, _line(text, a), "html-comment-unclosed", "the comment is never closed - the rest of the page is hidden")
+        if b < 0:
+            break
+        pos = b + 3
+    for m in re.finditer(r"&([A-Za-z][A-Za-z0-9]*)(;?)", textonly):
+        name, semi = m.group(1), m.group(2)
+        line = _line(text, m.start())
+        if semi:
+            if name in full:
+                continue
+            hit = next((k for k in legacy if name.startswith(k)), None)
+            if hit:
+                add(out, rel, line, "html-bad-entity", "`&%s;` - the browser shows it as \"%s%s;\"" % (name, _unescape("&" + hit), name[len(hit):]))
+                continue
+            close = sorted((_typo_distance(name, k), k) for k in full if abs(len(k) - len(name)) <= 2)
+            close = [k for dist, k in close if dist <= (1 if len(name) <= 3 else 2)][:1]
+            add(out, rel, line, "html-bad-entity", "`&%s;`%s" % (name, (" - did you mean `&%s;`?" % close[0]) if close else ""))
+        else:
+            hit = next((k for k in legacy if name.startswith(k)), None)
+            nxt = textonly[m.end():m.end() + 1]
+            if hit and (len(name) > len(hit) or nxt == "="):
+                add(out, rel, line, "html-ambiguous-entity", "`&%s%s` is shown as \"%s%s%s\"" % (name, nxt if nxt == "=" else "", _unescape("&" + hit), name[len(hit):], nxt if nxt == "=" else ""))
+    return out
+
+
+def _unescape(s):
+    import html
+    return html.unescape(s)
+
+
+BOOLEAN_ATTRS = {"disabled", "checked", "readonly", "hidden", "required", "selected", "multiple", "autofocus", "novalidate",
+                 "async", "defer", "open", "inert", "controls", "autoplay", "loop", "muted", "reversed", "nomodule",
+                 "formnovalidate", "playsinline", "allowfullscreen", "default", "ismap", "itemscope"}
+FIELD_NO_NAME_OK = {"submit", "button", "reset", "image"}
+GARBLED = re.compile("â€[™œ”“˜–—¦¢¡¹ºšž]|â€\u009d"
+                     "|Ã[©¨ª«¤¶¼±§¡³­º¸¢´»¹Ÿ–„œ]"
+                     "|Â[ °©®·»«£½¼µ]")
+
+
+MEDIA_TYPES = {"all", "screen", "print", "speech", "tv", "handheld", "projection", "braille", "embossed", "aural", "tty"}
+
+
+def _bad_media(media):
+    """'' if fine, else ' - did you mean ...?' text for an unknown media type."""
+    for part in media.split(","):
+        w = part.strip().lower()
+        w = re.sub(r"^(only|not)\s+", "", w)
+        m = re.match(r"([a-z][a-z-]*)\b", w)
+        if not m or m.group(1) in MEDIA_TYPES or m.group(1) == "and":
+            continue
+        close = [t for t in sorted(MEDIA_TYPES) if _typo_distance(m.group(1), t) <= 2]
+        return " - `%s` is not a media type%s" % (m.group(1), (", did you mean `%s`?" % close[0]) if close else "")
+    return ""
+
+
+def _html_more(rel, text, p, out):
+    for tag, attrs, line, _ in p.tags:
+        d = dict(attrs)
+        if tag in KNOWN_TAGS:
+            for a, v in attrs:
+                if a in BOOLEAN_ATTRS and v is not None and v.strip().lower() in ("false", "no", "off", "0"):
+                    add(out, rel, line, "html-boolean-false", "<%s %s=\"%s\">" % (tag, a, v))
+        if d.get("aria-hidden", "").lower() == "true" and tag in ("a", "button", "input", "select", "textarea") \
+                and d.get("tabindex") != "-1" and "disabled" not in d and not (tag == "a" and "href" not in d) \
+                and (d.get("type") or "").lower() != "hidden":
+            add(out, rel, line, "html-aria-hidden-focus", "<%s aria-hidden=\"true\">" % tag)
+        if tag == "base" and d.get("href"):
+            add(out, rel, line, "html-base-tag", "<base href=\"%s\">" % d["href"][:40])
+    for f in p.forms:
+        fa = f["attrs"]
+        action = (fa.get("action") or "").strip()
+        sends = action and not re.match(r"(#|javascript:)", action, re.I) and not TEMPLATE_MARK.search(action)
+        if not sends:
+            continue                     # handled by a script (fetch / FormData), which works without these
+        files = [x for x in f["fields"] if x[0] == "input" and (x[1].get("type") or "").lower() == "file"]
+        if files and ((fa.get("method") or "get").lower() != "post" or (fa.get("enctype") or "").lower() != "multipart/form-data"):
+            add(out, rel, f["line"], "html-file-form", "<form action=\"%s\"> has a file field (line %d)" % (action[:30], files[0][2]))
+        for tag, d, line in f["fields"]:
+            if tag == "input" and (d.get("type") or "text").lower() in FIELD_NO_NAME_OK:
+                continue
+            if not d.get("name") and "form" not in d and not any(k.startswith((":", "[", "v-", "ng-", "x-", "wire:", "th:", "asp-")) for k in d):
+                add(out, rel, line, "html-field-no-name", "<%s%s> in the form from line %d" % (
+                    tag, (" id=\"%s\"" % d["id"][:20]) if d.get("id") else "", f["line"]))
+    radios = {}
+    for tag, attrs, line, in_form in p.tags:
+        d = dict(attrs)
+        if TEMPLATE_MARK.search(" ".join(str(v) for v in d.values() if v)):
+            continue
+        if d.get("media") is not None and tag in ("link", "style", "source"):
+            bad = _bad_media(d["media"])
+            if bad:
+                add(out, rel, line, "html-bad-media", "media=\"%s\"%s" % (d["media"][:30], bad))
+        if tag == "form" and d.get("method") is not None and d["method"].strip().lower() not in ("get", "post", "dialog"):
+            add(out, rel, line, "html-bad-form-method", "method=\"%s\" (sent as GET)" % d["method"][:15])
+        if tag == "button" and d.get("type") is not None and d["type"].strip().lower() not in ("submit", "button", "reset", "menu"):
+            add(out, rel, line, "html-bad-button-type", "type=\"%s\" - this button SUBMITS the form" % d["type"][:15])
+        if tag == "input" and d.get("min") and d.get("max"):
+            lo, hi = d["min"].strip(), d["max"].strip()
+            try:
+                bigger = float(lo) > float(hi)
+            except ValueError:
+                bigger = len(lo) == len(hi) and re.fullmatch(r"[\d:T-]+", lo + hi) is not None and lo > hi
+            if bigger:
+                add(out, rel, line, "html-min-max", "min=\"%s\" max=\"%s\"" % (lo[:12], hi[:12]))
+        if tag == "input" and (d.get("type") or "").lower() == "radio" and d.get("name"):
+            radios.setdefault(d["name"].lower(), []).append((d["name"], line))
+        if tag == "input" and (d.get("type") or "").lower() == "hidden" and in_form and \
+                re.fullmatch(r"(?i)[\w-]*(price|amount|total|cost|subtotal|discount)[\w-]*", d.get("name") or "") and \
+                not re.search(r"(?i)currency|_id$|-id$|code", d.get("name") or ""):
+            add(out, rel, line, "html-hidden-price", "<input type=\"hidden\" name=\"%s\" value=\"%s\">" % (d["name"][:20], (d.get("value") or "")[:10]))
+        for a in ("href", "src", "action", "poster", "data"):
+            v = (d.get(a) or "").strip()
+            if not v:
+                continue
+            if re.match(r"(?i)www\.[a-z0-9-]+\.[a-z]", v):
+                add(out, rel, line, "html-no-scheme", "%s=\"%s\"" % (a, v[:40]))
+            elif re.match(r"(?i)([a-z]:[\\/]|file:/|\\\\)", v):
+                add(out, rel, line, "html-local-path", "%s=\"%s\"" % (a, v[:50]))
+    for name, seen in radios.items():
+        spellings = sorted({n for n, _ in seen})
+        if len(spellings) > 1:
+            first = seen[0][0]
+            other = next(x for x in seen if x[0] != first)
+            add(out, rel, other[1], "html-radio-name", "name=\"%s\" here, but name=\"%s\" on line %d" % (other[0], first, seen[0][1]))
+    for sel_line, opts in p.multi_selected:
+        add(out, rel, opts[-1], "html-multi-selected", "the <select> from line %d has %d selected options" % (sel_line, len(opts)))
+    ids = {(dict(a).get("id") or "") for t, a, _, _ in p.tags}
+    for tag, attrs, line, _ in p.tags:
+        f = dict(attrs).get("form")
+        if f and tag in ("input", "button", "select", "textarea", "fieldset", "output", "object") and f not in ids:
+            add(out, rel, line, "html-form-missing", "form=\"%s\" - no form has that id" % f[:30])
+    if p.head_closer and p.after_head_close:
+        t, ln = p.head_closer
+        add(out, rel, ln, "html-tag-in-head", "<%s> - and <%s> on line %d ends up in the body" % (t, p.after_head_close[0][0], p.after_head_close[0][1]))
+    for ln in p.end_br:
+        add(out, rel, ln, "html-end-br", "</br>")
+    if p.headings:
+        prev = None
+        for lvl, ln in p.headings:
+            if prev is not None and lvl > prev + 2:
+                add(out, rel, ln, "html-heading-skip", "<h%d> right after <h%d>" % (lvl, prev))
+                break
+            prev = lvl
+    tagnames = {t[0] for t in p.tags}
+    if "head" in tagnames and not any(t[0] == "meta" and ("charset" in dict(t[1]) or (dict(t[1]).get("http-equiv") or "").lower() == "content-type")
+                                      for t in p.tags):
+        visible = re.sub(r"<(script|style)\b.*?</\1\s*>|<!--.*?-->", " ", text, flags=re.S | re.I)
+        if re.search(r"[^\x00-\x7f]", visible):
+            add(out, rel, 1, "html-no-charset", "")
+
+
+def check_garbled(rel, text, out):
+    """Mojibake: characters saved as UTF-8 and read back as Windows-1252 (or the other way round)."""
+    for m in GARBLED.finditer(text):
+        ctx = text[max(0, m.start() - 60):m.end() + 60]
+        if re.search(r"mojibake|encod|decod|garbl|latin-?1|cp1252|windows-1252|charset", ctx, re.I):
+            continue                         # text ABOUT the problem (a fix list, a test), not the problem
+        a = text.rfind("\n", 0, m.start()) + 1
+        snippet = re.sub(r"<[^>]*>", " ", text[max(a, m.start() - 25):m.end() + 25]).replace("\n", " ").strip()
+        add(out, rel, _line(text, m.start()), "text-garbled", "`%s` in \"%s\"" % (m.group(0), snippet))
+        return
 
 def check_html(rel, text):
     out = []
     p = _Page()
     try:
         p.feed(text)
+        rest = p.rawdata[p.rawdata.find("<") if "<" in p.rawdata else 0:]
+        m = re.match(r"<([a-zA-Z][\w-]*)\s[^>]*?=\s*([\"'])", rest)
+        if m and m.group(2) not in rest[m.end():]:      # the page ends inside a tag: its quote is never closed
+            p.unparsed.append((p.getpos()[0], rest[:40].replace("\n", " ")))
         p.close()
     except Exception:
         return out, p
@@ -1016,6 +1574,43 @@ def check_html(rel, text):
                 add(out, rel, 1, "html-no-viewport", "")
             if "title" not in tagnames:
                 add(out, rel, 1, "html-no-title", "")
+    if not CONTROL_FLOW.search(text):
+        broken = {ln for ln, _ in p.unparsed} | {ln for t, attrs, ln, _ in p.tags for a, v in attrs if v and a in PLAIN_ATTRS and re.search(r"<[/a-zA-Z!]", v)}
+        for line, kind, detail in p.nest:
+            m = re.search(r"line (\d+)", detail)
+            if m and int(m.group(1)) in broken:
+                continue                        # only an echo of the quote that was never closed
+            add(out, rel, line, kind, detail)
+        for line, snippet in p.unparsed:
+            add(out, rel, line, "html-unclosed-quote", "`%s` - the quote is never closed" % snippet)
+    quote_broken = {ln for ln, _ in p.unparsed} | {ln for t, at, ln, _ in p.tags for a, v in at
+                                                   if v and a in PLAIN_ATTRS and re.search(r"<[/a-zA-Z!]", v)}
+    for tag, attrs, line, _ in p.tags:
+        for a, v in attrs:
+            if a and set(a) <= set("\"'"):
+                add(out, rel, line, "html-stray-character", "an extra %s in <%s ...>" % (a, tag))
+            elif a and re.search(r"[\"']", a) and not templated and line not in quote_broken:
+                prev = next(((x, y) for x, y in reversed(attrs[:attrs.index((a, v))]) if y is not None), None)
+                add(out, rel, line, "html-nested-quote", ("%s=\"%s\" ends before %s" % (prev[0], prev[1][:25], a.strip("\"'")[:20]))
+                    if prev else "<%s ... %s>" % (tag, a[:20]))
+            elif a in PLAIN_ATTRS and v and not TEMPLATE_MARK.search(v) and not re.match(r"\s*(data|javascript):", v, re.I) and \
+                    (re.search(r"<[/a-zA-Z!]", v) or re.search(r"[\"']\s+[a-zA-Z-]+\s*=\s*[\"']", v)):
+                add(out, rel, line, "html-unclosed-quote", "%s=\"%s...\" on <%s>" % (a, v.replace("\n", " ")[:25], tag))
+        if tag == "meta" and (dict(attrs).get("name") or "").lower() == "viewport" and \
+                re.search(r"user-scalable\s*=\s*(no|0)\b|maximum-scale\s*=\s*1(\.0*)?(?![\d.])", dict(attrs).get("content") or "", re.I):
+            add(out, rel, line, "html-zoom-blocked", dict(attrs).get("content")[:60])
+    if not CONTROL_FLOW.search(text):
+        _html_more(rel, text, p, out)
+    seen_old = set()
+    for tag, attrs, line, _ in p.tags:
+        if tag in OLD_TAGS and tag not in seen_old:
+            seen_old.add(tag)
+            add(out, rel, line, "html-old-tag", "<%s>" % tag)
+    out += _html_text_traps(rel, text)
+    for css, line in p.styles:
+        for f in check_css(rel, css):
+            f["line"] += line - 1
+            out.append(f)
     # inline scripts are JavaScript too
     for attrs, code, line in p.scripts:
         t = (attrs.get("type") or "").lower()
@@ -1135,11 +1730,34 @@ def _decls(body, base_off):
     return res
 
 
+TABLE_TR = re.compile(r"\btable\s*>\s*tr\b(?![\w-])")
+
+
 def check_css(rel, text):
     out = []
     code = _css_strip(text)
     if "#{" in code or re.search(r"(^|\n)\s*[$@][\w-]+\s*:", code):
         return out                                   # Sass / Less syntax inside a .css file - not plain CSS
+    for m in re.finditer(r"@media\s+([^{;]+)\{", code):
+        bad = _bad_media(m.group(1))
+        if bad:
+            add(out, rel, _line(text, m.start()), "html-bad-media", "`@media %s`%s" % (m.group(1).strip()[:30], bad))
+    positioned, zrules = set(), []
+    for m in re.finditer(r"([^{};]*)\{([^{}]*)\}", code):
+        sel = m.group(1).strip()
+        props = {pr for _, pr, _ in _decls(m.group(2), 0)}
+        if "position" in props:
+            positioned |= set(re.findall(r"[.#][\w-]+", sel))
+        if "z-index" in props and "position" not in props and not sel.startswith("@"):
+            zrules.append((sel, m.start(2) + m.group(2).find("z-index")))
+    flex_file = re.search(r"display\s*:\s*(inline-)?(flex|grid)", code)
+    for sel, off in zrules:
+        last = [re.split(r"[\s>+~]+", x.strip())[-1] for x in sel.split(",")]
+        marks = set(re.findall(r"[.#][\w-]+", " ".join(last)))
+        if marks and not (marks & positioned) and not flex_file and not re.search(r":(before|after)\b|dialog|popover|\[open\]", sel):
+            add(out, rel, _line(text, off), "css-zindex-no-position", "`%s` has z-index but no position" % sel[:40])
+    for m in TABLE_TR.finditer(re.sub(r"\{[^{}]*\}", lambda b: re.sub(r"[^\n]", " ", b.group(0)), code)):
+        add(out, rel, _line(text, m.start()), "css-table-tr", "`%s`" % m.group(0).strip())
     for m in re.finditer(r"\{([^{}]*)\}", code):
         body = m.group(1)
         decls = _decls(body, m.start(1))
@@ -1159,6 +1777,10 @@ def check_css(rel, text):
                 if len(h) not in (3, 4, 6, 8) or not re.fullmatch(r"[0-9a-fA-F]+", h):
                     add(out, rel, line, "css-bad-color", "`%s: %s`" % (prop, v[:40]))
                     break
+            if prop in ("transition", "transition-duration", "transition-delay", "animation-duration", "animation-delay"):
+                bare = [t for t in re.split(r"[\s,]+", re.sub(r"\([^)]*\)", "", v)) if re.fullmatch(r"-?(\d+\.?\d*|\.\d+)", t) and float(t) != 0]
+                if bare:
+                    add(out, rel, line, "css-missing-time-unit", "`%s: %s` - %s what? (s or ms)" % (prop, v[:30], bare[0]))
             if prop in CSS_LENGTH_PROPS and "(" not in v:
                 bad = [t for t in v.split() if re.fullmatch(r"-?(\d+\.?\d*|\.\d+)", t) and float(t) != 0]
                 if bad:
@@ -1349,6 +1971,146 @@ def check_project(texts, pages):
     return out
 
 
+# =================================================================================================== page + script together
+VALUE_TAGS = {"input", "select", "textarea", "button", "output", "option", "li", "meter", "progress", "data", "param"}
+DOM_GET = r"""(?:document\.)?(?:getElementById\(\s*["'`]([\w-]+)["'`]\s*\)|querySelector\(\s*["'`]#([\w-]+)["'`]\s*\))"""
+SCRIPT_EXTS = ("js", "mjs", "cjs", "jsx", "ts", "tsx")
+
+
+def _script_view(rel, text):
+    """Only the JavaScript of a file (for a page: its <script> blocks), with line numbers unchanged."""
+    if rel.rsplit(".", 1)[-1].lower() not in ("html", "htm"):
+        return text
+    keep = [" " if ch != "\n" else "\n" for ch in text]
+    for m in re.finditer(r"<script\b([^>]*)>(.*?)</script\s*>", text, re.S | re.I):
+        if re.search(r"""type\s*=\s*["']?(?!(text/javascript|module|application/javascript)\b)[\w/+-]""", m.group(1), re.I):
+            continue
+        keep[m.start(2):m.end(2)] = list(m.group(2))
+    for m in re.finditer(r"""\son[a-z]+\s*=\s*"([^"]*)\"""", text):
+        keep[m.start(1):m.end(1)] = list(m.group(1))
+    return "".join(keep)
+
+
+def deep_checks(texts, pages, files):
+    out = []
+    # which element each id belongs to (only ids that mean the same thing on every page)
+    id_tag = {}
+    for rel, page in pages.items():
+        for tag, attrs, line, _ in page.tags:
+            d = dict(attrs)
+            if d.get("id") and not TEMPLATE_MARK.search(d["id"]):
+                id_tag.setdefault(d["id"], set()).add((tag, (d.get("type") or "text").lower() if tag == "input" else ""))
+    id_tag = {k: next(iter(v)) for k, v in id_tag.items() if len(v) == 1}
+    all_code = {rel: _script_view(rel, t) for rel, t in texts.items()
+                if rel.rsplit(".", 1)[-1].lower() in SCRIPT_EXTS + ("html", "htm") and not TEST_PATH.search(rel)}
+    calls_submit = any(re.search(r"\.(submit|reset)\(\s*\)", c) for c in all_code.values())
+    for rel, c in all_code.items():
+        if not c.strip():
+            continue
+        names = {}
+        for m in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*" + DOM_GET, c):
+            names[m.group(1)] = m.group(2) or m.group(3)
+        reassigned = {n for n in names if len(re.findall(r"\b%s\s*=[^=]" % re.escape(n), c)) > 1}
+        for m in re.finditer(r"(?:" + DOM_GET + r"|\b([A-Za-z_$][\w$]*))\.value\b(?!As|Of)", c):
+            idn = m.group(1) or m.group(2) or (names.get(m.group(3)) if m.group(3) not in reassigned else None)
+            if not idn or idn not in id_tag:
+                continue
+            tag, typ = id_tag[idn]
+            line = _line(c, m.start())
+            if tag in KNOWN_TAGS and tag not in VALUE_TAGS and "-" not in tag:
+                add(out, rel, line, "js-value-on-text", "#%s is a <%s>" % (idn, tag))
+                continue
+            before = c[max(0, m.start() - 40):m.start()]
+            after = c[m.end():m.end() + 12]
+            if tag == "input" and typ in ("checkbox", "radio") and \
+                    (re.search(r"(\bif|\bwhile)\s*\(\s*!?\s*$|&&\s*$|\|\|\s*$", before) and re.match(r"\s*(\)|&&|\|\||\?)", after)):
+                add(out, rel, line, "js-checkbox-value", "#%s is a checkbox - use .checked" % idn)
+                continue
+            if tag in ("input", "select", "textarea") and typ not in ("checkbox", "radio"):
+                stmt_start = max(c.rfind(ch, 0, m.start()) for ch in ";{\n")
+                left = c[stmt_start + 1:m.start()]
+                right = c[m.end():m.end() + 30].split("\n")[0]
+                if re.search(r"""["'`]""", left + right.split(";")[0]) or re.search(r"(Number|parseInt|parseFloat|\+)\s*\(?\s*$", left.rstrip()[:-1] if left.rstrip().endswith("+") else left):
+                    continue
+                num_left = re.search(r"([*/%-]\s*[\w.)\]]+|\b\d+(\.\d+)?)\s*\+\s*$", left)
+                num_right = re.match(r"\s*\+\s*\d", right)
+                if num_left or num_right:
+                    add(out, rel, line, "js-value-plus", "`...%s` - .value is text" % c[m.start():m.end() + 6].split("\n")[0].strip()[:40])
+        objs = {m.group(1) for m in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\{|\[|new\s+(Map|Set|Date)\b)", c)}
+        for m in re.finditer(r"\b(?:localStorage|sessionStorage)\.setItem\(\s*[^,()]+,\s*([A-Za-z_$][\w$]*|\{|\[)", c):
+            v = m.group(1)
+            if v in ("{", "[") or (v in objs and not re.search(r"\b%s\s*=\s*JSON\.stringify" % re.escape(v), c)):
+                add(out, rel, _line(c, m.start()), "js-storage-object", "`%s` is an object/list" % v)
+        for m in re.finditer(r"\.then\(\s*\(?\s*([A-Za-z_$][\w$]*)\s*\)?\s*=>\s*\1\.(json|text|blob|arrayBuffer|formData)\s*\)|"
+                             r"=\s*await\s+([A-Za-z_$][\w$]*)\.(json|text|blob|arrayBuffer|formData)\s*;", c):
+            add(out, rel, _line(c, m.start()), "js-json-not-called", "`.%s` without ()" % (m.group(2) or m.group(4)))
+    # functions behind onclick that live only in modules
+    scripts_text = "\n".join(all_code.values())
+    for rel, page in pages.items():
+        text = texts.get(rel, "")
+        if TEMPLATE_MARK.search(text):
+            continue
+        classic, module = [], []
+        for attrs, code_, _ in page.scripts:
+            (module if (attrs.get("type") or "").lower() == "module" else classic).append(code_)
+        for tag, attrs, line, _ in page.tags:
+            d = dict(attrs)
+            if tag == "script" and d.get("src") and not re.match(r"(?i)(https?:)?//", d["src"]):
+                src = d["src"].split("?")[0]
+                path = posixpath.normpath(src.lstrip("/") if src.startswith("/") else posixpath.join(posixpath.dirname(rel), src))
+                (module if (d.get("type") or "").lower() == "module" else classic).append(texts.get(path, ""))
+        mod, cls = "\n".join(module), "\n".join(classic)
+        if not mod.strip():
+            continue
+        # read the handlers from the text itself, so that tags hidden by a BROKEN comment (-- >) count too
+        visible = re.sub(r"<!--(?:(?!--\s+>).)*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+        for hm in re.finditer(r"""\s(on[a-z]+)\s*=\s*"([^"]*)\"""", visible):
+            a, v, line = hm.group(1), hm.group(2), _line(text, hm.start())
+            if True:
+                fm = re.match(r"\s*(?:return\s+)?([A-Za-z_$][\w$]*)\s*\(", v)
+                if not fm or fm.group(1) in GLOBAL_FUNCS:
+                    continue
+                fn = re.escape(fm.group(1))
+                define = r"\bfunction\s+%s\b|\b(?:const|let|var|class)\s+%s\b" % (fn, fn)
+                if re.search(define, mod) and not re.search(define, cls) and \
+                        not re.search(r"\b(window|globalThis|self)\s*\.\s*%s\s*=|Object\.assign\(\s*(window|globalThis)" % fn, scripts_text):
+                    add(out, rel, line, "html-module-handler", "%s=\"%s\" - %s() is defined only inside a type=\"module\" script" % (a, v[:30], fm.group(1)))
+    # links to pages and places that do not exist
+    lower_files = {f.lower() for f in files}
+    generated = any(posixpath.basename(f) in ("_config.yml", ".eleventy.js", "eleventy.config.js", "hugo.toml", "astro.config.mjs",
+                                              "next.config.js", "gatsby-config.js", "svelte.config.js", "nuxt.config.ts") for f in files)
+    for rel, page in pages.items():
+        text = texts.get(rel, "")
+        if TEMPLATE_MARK.search(text) or CONTROL_FLOW.search(text):
+            continue
+        here_ids = {(dict(a).get("id") or "") for _, a, _, _ in page.tags} | {(dict(a).get("name") or "") for t, a, _, _ in page.tags if t == "a"}
+        for tag, attrs, line, in_form in page.tags:
+            d = dict(attrs)
+            if in_form and tag in ("input", "button", "select", "textarea") and calls_submit and \
+                    ((d.get("name") or "") in ("submit", "reset") or (d.get("id") or "") in ("submit", "reset")):
+                add(out, rel, line, "html-form-shadow", "%s=\"%s\" inside a form, and a script calls form.%s()" % (
+                    "name" if d.get("name") in ("submit", "reset") else "id", d.get("name") or d.get("id"), d.get("name") or d.get("id")))
+            if tag != "a" or not d.get("href"):
+                continue
+            href = d["href"].strip()
+            if href.startswith("#"):
+                frag = urllib.parse.unquote(href[1:])
+                if frag and frag != "top" and not frag.startswith(("/", "!")) and frag not in here_ids and \
+                        not re.search(r"""["'`]#?%s["'`]""" % re.escape(frag), scripts_text):
+                    add(out, rel, line, "html-missing-anchor", "href=\"%s\" - no element on this page has id=\"%s\"" % (href[:30], frag[:30]))
+                continue
+            if generated or re.match(r"(?i)[a-z][a-z0-9+.-]*:|//|/", href):
+                continue
+            target = href.split("#")[0].split("?")[0]
+            if not re.search(r"(?i)\.html?$", target):
+                continue
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(rel), urllib.parse.unquote(target)))
+            stem = path.rsplit(".", 1)[0]
+            if path.lower() in lower_files or any((stem + e) in files for e in (".md", ".markdown", ".njk", ".pug", ".ejs", ".hbs", ".liquid", ".php")):
+                continue
+            add(out, rel, line, "html-missing-page", "href=\"%s\" - there is no %s" % (href[:40], path))
+    return out
+
 # =================================================================================================== run
 def check(root):
     project = dedupe.Project(root)
@@ -1389,6 +2151,41 @@ def check(root):
         found += check_project(texts, pages)
     except Exception:
         pass
+    try:
+        found += deep_checks(texts, pages, files)
+    except Exception as e:
+        print("  (page + script checks skipped: %s)" % type(e).__name__)
+    for rel, t in texts.items():
+        if rel.rsplit(".", 1)[-1].lower() in ("html", "htm", "md", "markdown", "json", "css", "js", "jsx", "ts", "tsx", "vue", "svelte") \
+                and not TEST_PATH.search(rel):
+            check_garbled(rel, t, found)
+    # a form sent by a script (submit handler) reads its fields itself - names are not needed then
+    if any(re.search(r"addEventListener\(\s*[\"'`]submit|onsubmit|preventDefault\s*\(|handleSubmit|@submit|\(ngSubmit\)|\.submit\(", t)
+           for t in texts.values()):
+        found = [f for f in found if f["kind"] != "html-field-no-name"]
+    reads = set()
+    for rel, t in texts.items():
+        if rel.rsplit(".", 1)[-1].lower() in ("js", "mjs", "cjs", "jsx", "ts", "tsx", "html", "htm", "vue", "svelte"):
+            reads |= set(re.findall(r"\bdataset\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*[\"'`]([^\"'`]+)[\"'`]\s*\])", t))
+    reads = {a or b for a, b in reads}
+    for rel, t in texts.items():
+        if rel.rsplit(".", 1)[-1].lower() not in ("html", "htm") or CONTROL_FLOW.search(t):
+            continue
+        for m in re.finditer(r"\sdata-([a-z0-9]+(?:-[a-z0-9]+)*[A-Z][\w-]*)\s*=", t):
+            name = m.group(1)
+            camel = re.sub(r"-([a-z])", lambda x: x.group(1).upper(), name)
+            if camel in reads and camel != re.sub(r"-([a-z])", lambda x: x.group(1).upper(), name.lower()):
+                add(found, rel, _line(t, m.start()), "html-data-case", "data-%s is read as dataset.%s, which gives undefined" % (name, camel))
+    # rows built by a script (createElement("tr") + appendChild) really can sit directly in a <table>
+    builds_rows = any(re.search(r"createElement\(\s*[\"'`]tr[\"'`]", t) for t in texts.values())
+    if builds_rows:
+        found = [f for f in found if f["kind"] != "css-table-tr"]
+    else:
+        for rel, t in texts.items():
+            if rel.rsplit(".", 1)[-1].lower() in ("js", "mjs", "cjs", "jsx", "ts", "tsx", "html", "htm", "vue", "svelte"):
+                for m in re.finditer(r"(?:querySelector(?:All)?|closest|matches|\$|jQuery)\(\s*([\"'`])([^\"'`\n]*)\1", t):
+                    if TABLE_TR.search(m.group(2)):
+                        add(found, rel, _line(t, m.start()), "css-table-tr", "`%s`" % m.group(0)[:60])
     uniq, seen = [], set()
     for f in sorted(found, key=lambda f: (f["file"], f["line"], f["kind"])):
         key = (f["file"], f["line"], f["kind"], f["detail"])

@@ -52,9 +52,27 @@ complains about correct code. (It found real bugs in matplotlib, scikit-learn, m
 | **Python** | `if x == "a" or "b"` (always true) · `items = items.sort()` (None) · `name.strip()` (result thrown away) · `"Hello {name}"` without `f` · `range(len(x) + 1)` · a `while` loop whose variable never changes · `int(input())` that crashes on letters · a default like `when=datetime.now()` that never updates · an error created but not raised · a grade function that returns nothing for low scores |
 | **JavaScript / TypeScript** | `if (x = 5)` · `x === NaN` · `typeof x === "numbr"` · `return` with the value on the next line · `fetch()` used without `await` · `forEach(async ...)` · `useEffect(async ...)` · `onClick={handle()}` · `i <= list.length` · `.lenght`, `innerHtml` · `getElementById("#menu")` · `new Date(2024, 12, 1)` · a duplicate `case` |
 | **HTML** | the same id twice · a `<label>` for a missing id · a quantity or price field that accepts negative numbers · a button that submits the form by accident · `type="emial"` · a script with a misspelled type · a script looking for an element no page has · `onclick` calling a function that does not exist |
-| **CSS** | misspelled properties (`widht`, `colr`) · impossible colours (`#ggg`) · sizes without units (`width: 100`) |
+| **HTML the browser quietly rewrites** | a `<div>`, list or table inside a `<p>` (the browser ends the paragraph early) · a link inside a link · a form inside a form · a button inside a button · `<div />` (stays open and swallows the rest) · text put directly inside `<table>` (moved above it) · an attribute quote that never closes · a stray `>` or `"` shown on the page · `&nbps;` (shown literally) · `&copy2024` (shown as ©2024) · CSS or scripts using `table > tr` (never matches) |
+| **HTML forms, attributes and text** | `disabled="false"` (still disabled) · `data-userId` read as `dataset.userId` (undefined) · a file upload form without `multipart/form-data` (sends only the name) · form fields without `name` (never sent) · `title="Click "Here""` · `</br>` (an extra line break) · a `<div>` inside `<head>` (the rest of the head lands in the body) · garbled text like `â€™` from a wrong encoding · ideas: missing `<meta charset>`, non-`<li>` inside a list, h1 jumping to h4, `aria-hidden` on something clickable, `<base>` |
+| **Pages, forms and scripts together** | a comment ended with `-- >` (hides the rest) · `media="pritn"` · `&amp;copy;` · links to missing pages and `#anchors` · `www.site.com` without https:// · `C:\Users\...` paths · `method="POTS"`, `type="buton"` (becomes submit) · `min` bigger than `max` · radio names `shipping` / `Shipping` · two `selected` options · `form="..."` pointing nowhere · a field named `submit` breaking `form.submit()` · `onclick` calling a function inside a module · `.value` on a `<span>` · a checkbox tested with `.value` · `499 + input.value` = `"4991"` · objects saved to `localStorage` · `r.json` without `()` · `transition: 0.3` without `s` |
+| **File paths** | `img/Logo.PNG` when the file is `logo.png`: works on Windows and Mac, 404 on a Linux web server |
+| **CSS** | misspelled properties (`widht`, `colr`) · impossible colours (`#ggg`) · sizes without units (`width: 100`), also inside `<style>` blocks |
 | **JSON** | the same key twice · `package.json` starting a file that does not exist |
 | **Markdown** | links and pictures to missing files · links to headings that do not exist · a code block that never closes · `#Heading` without a space |
+
+### Page health (opens your pages in a real browser)
+
+What you would see with DevTools open on every page, done for you: JavaScript errors while a page loads (with the
+file and line), errors written to the console, and pictures, styles, scripts or fonts that answer 404. Built projects
+(Vite, React, ...) are built in a temporary copy first. Errors on pages that need your backend, or a permission the
+test browser does not give (location, camera), are marked as ideas instead of decisions. To switch it off: `"pagecheck": false` in
+`arachnid.config.json`, or `ARACHNID_NO_BROWSER=1`.
+
+**Brutal test:** a shop website with 38 bugs hidden deep in its HTML, forms, scripts and styles - Arachnid finds
+all 38 on their exact lines, and reports nothing at all on the same site with the bugs fixed.
+
+Tested on about 2,200 real pages from Google Chrome's and MDN's sample sites: every new HTML finding was a real
+bug (for example a `<ul>` inside a `<p>` and `<a>` typed where `</a>` was meant), with **zero** false alarms.
 
 ### Security
 
@@ -238,7 +256,8 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 
 ```bash
 python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
-python qa_accuracy.py         # 24 planted problems must be found, 17 clean look-alikes must stay quiet
+python qa_accuracy.py         # 30 planted problems must be found, 20 clean look-alikes must stay quiet
+python qa_html_brutal.py      # a shop website with 38 deeply hidden bugs: all must be found, its clean twin must get 0 findings
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 
