@@ -30,6 +30,7 @@ from urllib.parse import urlparse, unquote
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import ledger  # noqa: E402
+import links  # noqa: E402
 import pixelcheck  # noqa: E402
 
 SKIP_DIRS = {"node_modules", ".git", "backups", "reports", "arachnid", ".cache", "coverage", "__pycache__", ".venv", "venv",
@@ -107,7 +108,7 @@ def line_of(page_file, wanted):
     return 0
 
 
-def visit(browser, port, page_path, prefix, has_modules=True):
+def visit(browser, port, page_path, prefix, has_modules=True, declared=()):
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
     page = ctx.new_page()
     errors, console, missing, data_failed, external_failed = [], [], [], [], set()
@@ -123,7 +124,9 @@ def visit(browser, port, page_path, prefix, has_modules=True):
             return
         if kind in DATA_TYPES:
             data_failed.append(unquote(urlparse(resp.url).path))
-        elif not p.endswith("favicon.ico") and not ("node_modules/" in p and not has_modules):
+        elif p.endswith("favicon.ico") or ("node_modules/" in p and (not has_modules or links.package_of(p) in declared)):
+            return                                  # a package listed in package.json but not installed: run npm install
+        else:
             missing.append((p, resp.status, kind))
 
     def on_failed(req):
@@ -196,7 +199,7 @@ def check(root, log=print):
                 browser = pw.chromium.launch()
                 for page_path in pages:
                     log("  opening %s" % (prefix + page_path))
-                    errors, console, missing, data_failed, ext = visit(browser, port, page_path, prefix, (site / "node_modules").exists())
+                    errors, console, missing, data_failed, ext = visit(browser, port, page_path, prefix, (site / "node_modules").exists(), links.declared_packages(root))
                     hint = ""
                     if data_failed:
                         hint = (" (this page asks a server for %s, which only your backend can answer; if that is the "
