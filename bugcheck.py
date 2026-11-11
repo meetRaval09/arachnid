@@ -337,6 +337,28 @@ RULES = {
     "css-zindex-no-position": ("idea", "z-index that may have no effect",
                                "z-index only works on positioned elements (position: relative/absolute/fixed/sticky) or "
                                "flex/grid children", "add position: relative if it is needed"),
+    "css-undefined-var": ("decision", "a CSS variable that is never defined",
+                          "var(--name) with no --name anywhere makes the whole line invalid, so the colour, size or space "
+                          "silently disappears", "define the variable, fix its spelling, or give a fallback: var(--name, 8px)"),
+    "css-media-no-unit": ("decision", "a screen-size rule without a unit",
+                          "(max-width: 600) has no unit, so the browser NEVER applies this block", "write 600px"),
+    "css-calc-spacing": ("decision", "calc() needs spaces around + and -",
+                         "calc(100%-20px) is read as two numbers with nothing between them, so the whole line is ignored",
+                         "write calc(100% - 20px)"),
+    "css-line-comment": ("decision", "a // comment in CSS",
+                         "CSS has no // comments: the browser reads it as part of the next rule and throws that rule away",
+                         "use /* ... */"),
+    "css-missing-semicolon": ("decision", "a missing ; between two styles",
+                              "without the ; both lines run together into one broken value, and BOTH are ignored", "add the ;"),
+    "css-late-import": ("decision", "an @import that is ignored",
+                        "@import only works at the very top of a style sheet; after any other rule the browser skips it",
+                        "move the @import to the top"),
+    "css-bad-keyword": ("decision", "a value this style does not accept",
+                        "the browser ignores the whole line when the value is not one it knows (DevTools shows a yellow warning)",
+                        "fix the spelling of the value"),
+    "css-bad-unit": ("decision", "a size with a unit that does not exist",
+                     "units must touch the number and be real units (px, rem, %, s ...); otherwise the whole line is ignored",
+                     "fix the unit"),
     "html-old-tag": ("idea", "an outdated HTML tag",
                      "this tag was removed from HTML; it still works in browsers today but may stop, and screen readers "
                      "ignore its meaning", "use CSS instead (text-align, font-family, animation ...)"),
@@ -1733,11 +1755,177 @@ def _decls(body, base_off):
 TABLE_TR = re.compile(r"\btable\s*>\s*tr\b(?![\w-])")
 
 
+CSS_GLOBAL = {"inherit", "initial", "unset", "revert", "revert-layer"}
+_ALIGN = {"normal", "stretch", "center", "start", "end", "flex-start", "flex-end", "self-start", "self-end", "left", "right",
+          "baseline", "first", "last", "safe", "unsafe", "space-between", "space-around", "space-evenly", "anchor-center", "legacy"}
+CSS_KEYWORDS = {
+    "display": {"block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "none", "contents", "flow-root",
+                "list-item", "table", "inline-table", "table-row", "table-cell", "table-column", "table-row-group",
+                "table-header-group", "table-footer-group", "table-column-group", "table-caption", "ruby", "ruby-text",
+                "run-in", "flow", "math", "ruby-base", "ruby-base-container", "ruby-text-container", "-webkit-box",
+                "-webkit-inline-box", "-ms-flexbox", "-ms-inline-flexbox", "-moz-box", "-ms-grid", "-ms-inline-grid", "subgrid",
+                "masonry", "grid-lanes", "inline-grid-lanes", "inline-list-item", "-webkit-flex", "-webkit-inline-flex", "-moz-inline-box", "-moz-inline-stack"},
+    "position": {"static", "relative", "absolute", "fixed", "sticky", "-webkit-sticky"},
+    "float": {"left", "right", "none", "inline-start", "inline-end"},
+    "clear": {"left", "right", "both", "none", "inline-start", "inline-end"},
+    "visibility": {"visible", "hidden", "collapse"},
+    "overflow": {"visible", "hidden", "scroll", "auto", "clip", "overlay"},
+    "overflow-x": {"visible", "hidden", "scroll", "auto", "clip", "overlay"},
+    "overflow-y": {"visible", "hidden", "scroll", "auto", "clip", "overlay"},
+    "box-sizing": {"border-box", "content-box", "padding-box"},
+    "flex-direction": {"row", "row-reverse", "column", "column-reverse"},
+    "flex-wrap": {"nowrap", "wrap", "wrap-reverse"},
+    "justify-content": _ALIGN, "align-items": _ALIGN, "align-self": _ALIGN | {"auto"}, "align-content": _ALIGN,
+    "justify-items": _ALIGN, "justify-self": _ALIGN | {"auto"}, "place-items": _ALIGN, "place-content": _ALIGN,
+    "text-align": {"left", "right", "center", "justify", "start", "end", "match-parent", "justify-all", "-webkit-center",
+                   "-moz-center", "-webkit-left", "-webkit-right", "-khtml-center"},
+    "text-transform": {"none", "uppercase", "lowercase", "capitalize", "full-width", "full-size-kana", "math-auto"},
+    "font-style": {"normal", "italic", "oblique"},
+    "white-space": {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces", "collapse", "preserve", "preserve-breaks",
+                    "preserve-spaces", "wrap", "-moz-pre-wrap", "-o-pre-wrap", "-pre-wrap"},
+    "pointer-events": {"auto", "none", "visiblepainted", "visiblefill", "visiblestroke", "visible", "painted", "fill", "stroke",
+                       "all", "bounding-box"},
+    "object-fit": {"fill", "contain", "cover", "none", "scale-down"},
+    "resize": {"none", "both", "horizontal", "vertical", "block", "inline"},
+    "user-select": {"none", "auto", "text", "all", "contain", "element"},
+    "table-layout": {"auto", "fixed"},
+    "border-collapse": {"collapse", "separate"},
+    "list-style-position": {"inside", "outside"},
+    "backface-visibility": {"visible", "hidden"},
+    "direction": {"ltr", "rtl"},
+    "word-break": {"normal", "break-all", "keep-all", "break-word", "auto-phrase"},
+    "overflow-wrap": {"normal", "break-word", "anywhere"},
+    "scroll-behavior": {"auto", "smooth"},
+}
+CSS_UNITS = {"px", "em", "rem", "vh", "vw", "vmin", "vmax", "vb", "vi", "svh", "lvh", "dvh", "svw", "lvw", "dvw", "svmin", "svmax",
+             "lvmin", "lvmax", "dvmin", "dvmax", "ch", "ex", "cap", "ic", "lh", "rlh", "rex", "rch", "ric", "rcap", "cm", "mm", "q",
+             "in", "pt", "pc", "deg", "rad", "grad", "turn", "s", "ms", "hz", "khz", "dpi", "dpcm", "dppx", "x", "fr", "cqw", "cqh",
+             "cqi", "cqb", "cqmin", "cqmax", "e"}
+UNIT_FREE_PROPS = re.compile(r"^(font-family|content|grid-template-areas|grid-area|animation|animation-name|counter-|will-change|"
+                             r"font-feature-settings|font-variation-settings|quotes|src|unicode-range|transition-property|"
+                             r"list-style-type|font$|mask|filter|-)")
+
+
+def _css_depths(code):
+    """brace depth at every position of the (comment/string-blanked) CSS"""
+    d, out = 0, []
+    for ch in code:
+        out.append(d)
+        if ch == "{":
+            d += 1
+        elif ch == "}":
+            d = max(0, d - 1)
+    return out
+
+
+def check_css_more(rel, text, code, out):
+    code_nourl = re.sub(r"url\([^)]*\)", lambda m: "url(" + " " * (len(m.group(0)) - 5) + ")", code)
+    depth = _css_depths(code_nourl)
+    # // comments
+    for m in re.finditer(r"(?m)^[ \t]*//[^\n]*", code_nourl):
+        if depth[m.start()] == 0:
+            add(out, rel, _line(text, m.start()), "css-line-comment", "`%s` - the rule after it is thrown away" % m.group(0).strip()[:40])
+        elif not m.group(0).rstrip().endswith(";"):
+            add(out, rel, _line(text, m.start()), "css-line-comment", "`%s` - it swallows the next line" % m.group(0).strip()[:40])
+    # @import after other rules
+    seen_rule = None
+    for m in re.finditer(r"@import\b|@charset\b|@layer\s+[\w\s,.-]+;|[^\s{};@][^{};]*\{", code_nourl):
+        if m.group(0).startswith("@import"):
+            if seen_rule is not None and depth[m.start()] == 0:
+                add(out, rel, _line(text, m.start()), "css-late-import", "after the rule on line %d" % seen_rule)
+        elif not m.group(0).startswith("@") and depth[m.start()] == 0 and seen_rule is None:
+            seen_rule = _line(text, m.start())
+    # media queries without units
+    for m in re.finditer(r"@(media|container)\b[^{;]*", code_nourl):
+        for q in re.finditer(r"\(\s*((?:min-|max-)?(?:width|height|inline-size|block-size))\s*:\s*(-?\d*\.?\d+)\s*\)", m.group(0)):
+            if float(q.group(2)) != 0:
+                add(out, rel, _line(text, m.start()), "css-media-no-unit", "`(%s: %s)` - %s what? (px, em ...)" % (q.group(1), q.group(2), q.group(2)))
+    for m in re.finditer(r"\{([^{}]*)\}", code_nourl):
+        for off, prop, val in _decls(m.group(1), m.start(1)):
+            if prop.startswith("--"):
+                continue
+            line = _line(text, off)
+            v = re.sub(r"\s*!important\s*$", "", val, flags=re.I)
+            # two declarations run together (missing ;)
+            mm = re.search(r"(?:^|\s)([a-z-]+)\s*:\s*\S", v)
+            if mm and mm.group(1) in CSS_PROPS and "(" not in v[:mm.start()] and not re.search(r"\w:\w", mm.group(0)):
+                add(out, rel, line, "css-missing-semicolon", "`%s: %s` - no ; before `%s`" % (prop, v[:mm.start()].strip()[:20], mm.group(1)))
+                continue
+            # calc() spacing
+            for cm in re.finditer(r"\b(?:calc|clamp|min|max)\((.*)\)", v):
+                inner = cm.group(1)
+                inner = re.sub(r"var\([^()]*\)", "V", inner)
+                if re.search(r"(\d|%|[a-zA-Z]|\))[+-](\d|\.\d|\(|V)", re.sub(r"\d[eE][+-]\d", "0", inner)) and \
+                        not re.search(r"[a-zA-Z]-[a-zA-Z]", inner.replace("V", "")) or \
+                        re.search(r"(\d|%|[a-zA-Z]|\))\s+[+-](\d|\.\d|V)", inner):
+                    add(out, rel, line, "css-calc-spacing", "`%s`" % cm.group(0)[:40])
+                    break
+            # keywords
+            allowed = CSS_KEYWORDS.get(prop)
+            if allowed and "(" not in v and not TEMPLATE_MARK.search(v):
+                for tok in re.split(r"[\s,]+", v.lower()):
+                    if tok and tok not in allowed and tok not in CSS_GLOBAL and not tok.startswith(("-", "$")) and not re.match(r"\.?\d", tok):
+                        close = sorted((_typo_distance(tok, k), k) for k in allowed)
+                        hint = (" - did you mean `%s`?" % close[0][1]) if close and close[0][0] <= 2 else ""
+                        add(out, rel, line, "css-bad-keyword", "`%s: %s`%s" % (prop, v[:30], hint))
+                        break
+            # units
+            if not UNIT_FREE_PROPS.match(prop) and not TEMPLATE_MARK.search(v):
+                vv = re.sub(r"url\([^)]*\)|#[0-9a-fA-F]+\b|\"[^\"]*\"|'[^']*'|var\([^()]*\)", " ", v)
+                bad = None
+                for um in re.finditer(r"(?<![\w.#-])(-?\d*\.?\d+)([a-zA-Z]+)\b", vv):
+                    if um.group(2).lower() not in CSS_UNITS:
+                        bad = "`%s` - %s is not a unit" % (um.group(0), um.group(2))
+                        break
+                if not bad:
+                    um = re.search(r"(?<![\w.#-])(-?\d*\.?\d+)\s+(px|em|rem|vh|vw|%|ms|deg)\b", vv)
+                    if um:
+                        bad = "`%s` - the unit must touch the number" % um.group(0)
+                if bad:
+                    add(out, rel, line, "css-bad-unit", bad)
+
+
+def css_variable_checks(texts):
+    """var(--name) where --name is defined nowhere in the project"""
+    out = []
+    defined, uses, external = set(), [], False
+    for rel, t in texts.items():
+        ext = rel.rsplit(".", 1)[-1].lower()
+        if ext not in ("css", "html", "htm", "js", "mjs", "jsx", "ts", "tsx", "vue", "svelte", "scss", "less"):
+            continue
+        defined |= set(re.findall(r"(--[A-Za-z0-9_-]+)\s*:", t))
+        defined |= set(re.findall(r"@property\s+(--[\w-]+)", t))
+        for fm in re.finditer(r"@function\s+--[\w-]+\s*\(([^)]*)\)", t):
+            defined |= set(re.findall(r"--[\w-]+", fm.group(1)))   # @function --x(--size, --tint): its inputs
+        defined |= set(re.findall(r"""setProperty\(\s*["'`](--[\w-]+)""", t))
+        defined |= set(re.findall(r"""["'`](--[\w-]+)["'`]\s*[:\]]""", t))
+        if ext in ("scss", "less", "vue", "svelte", "jsx", "tsx"):
+            external = True                           # styles that are built or injected: can't see every definition
+        if re.search(r"""<link[^>]+href=["'](https?:)?//[^"']+\.css|@import\s+(url\()?["']?(?!\.|/)[\w@]|import\s+["'][^."'/][^"']*\.css["']""", t):
+            external = True
+        if ext in ("css", "html", "htm"):
+            code = _css_strip(t) if ext == "css" else t
+            for m in re.finditer(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)", code):
+                uses.append((rel, t, m))
+    for rel, t, m in uses:
+        name = m.group(1)
+        if name in defined:
+            continue
+        close = sorted((_typo_distance(name, d), d) for d in defined if abs(len(d) - len(name)) <= 2)
+        close = [d for dist, d in close if dist <= 2]
+        if external and not close:
+            continue                                  # may come from a framework or a library style sheet
+        add(out, rel, _line(t, m.start()), "css-undefined-var", "`%s` is never defined%s" % (
+            m.group(0), (" - did you mean `%s`?" % close[0]) if close else ""))
+    return out
+
+
 def check_css(rel, text):
     out = []
     code = _css_strip(text)
     if "#{" in code or re.search(r"(^|\n)\s*[$@][\w-]+\s*:", code):
         return out                                   # Sass / Less syntax inside a .css file - not plain CSS
+    check_css_more(rel, text, code, out)
     for m in re.finditer(r"@media\s+([^{;]+)\{", code):
         bad = _bad_media(m.group(1))
         if bad:
@@ -1783,7 +1971,7 @@ def check_css(rel, text):
                     add(out, rel, line, "css-missing-time-unit", "`%s: %s` - %s what? (s or ms)" % (prop, v[:30], bare[0]))
             if prop in CSS_LENGTH_PROPS and "(" not in v:
                 bad = [t for t in v.split() if re.fullmatch(r"-?(\d+\.?\d*|\.\d+)", t) and float(t) != 0]
-                if bad:
+                if bad and not any(f["kind"] == "css-bad-unit" and f["line"] == line for f in out):
                     add(out, rel, line, "css-missing-unit", "`%s: %s` - %s what?" % (prop, v[:30], bad[0]))
             if prop in seen and seen[prop][1] != v and "(" not in v + seen[prop][1] and \
                     not re.search(r"-(webkit|moz|ms|o)-", v + seen[prop][1]) and "!important" not in (val + seen[prop][2]).lower():
@@ -2177,6 +2365,10 @@ def check(root):
             if camel in reads and camel != re.sub(r"-([a-z])", lambda x: x.group(1).upper(), name.lower()):
                 add(found, rel, _line(t, m.start()), "html-data-case", "data-%s is read as dataset.%s, which gives undefined" % (name, camel))
     # rows built by a script (createElement("tr") + appendChild) really can sit directly in a <table>
+    try:
+        found += css_variable_checks(texts)
+    except Exception:
+        pass
     builds_rows = any(re.search(r"createElement\(\s*[\"'`]tr[\"'`]", t) for t in texts.values())
     if builds_rows:
         found = [f for f in found if f["kind"] != "css-table-tr"]

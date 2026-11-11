@@ -22,6 +22,8 @@ jobs:
         run: python qa_accuracy.py
       - name: Brutal HTML test (38 deeply hidden bugs, clean twin must stay silent)
         run: python qa_html_brutal.py
+      - name: Brutal CSS test (30 deeply hidden CSS bugs, clean twin must stay silent)
+        run: python qa_css_brutal.py
       - name: Known security holes (live check against the OSV database)
         run: |
           mkdir -p /tmp/vuln

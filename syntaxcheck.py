@@ -113,6 +113,7 @@ def finding(rel, kind, line, col, msg, lines):
 # Bracket / quote balance (for CSS, GLSL, SQL, Markdown-free fallbacks)
 # ----------------------------------------------------------------------------
 PAIRS = {")": "(", "]": "[", "}": "{"}
+SLASH_STYLE = ("scss", "sass", "less", "styl")          # these style languages have // comments; plain CSS does not
 NAMES = {"(": "parenthesis", "[": "square bracket", "{": "curly brace"}
 
 
@@ -492,7 +493,9 @@ class Oracle:
             e = check_py(t, "x.py")
         elif kind in ("json", "jsonc"):
             e = check_json(t, kind == "jsonc")
-        elif kind == "css" or kind == "glsl":
+        elif kind == "css":
+            e = check_balance(t, slash_comments=ext in SLASH_STYLE)     # plain CSS has no // comments
+        elif kind == "glsl":
             e = check_balance(t)
         elif kind == "sql":
             e = check_balance(t, multiline_strings=True, dash_comments=True, slash_comments=False)
@@ -1022,7 +1025,7 @@ def run(root):
         elif kind == "js":
             js_jobs.append((rel, ext, text, 0))
         elif kind == "css":
-            results[rel] += [(a, b, m, "css") for a, b, m in check_balance(text)]
+            results[rel] += [(a, b, m, "css") for a, b, m in check_balance(text, slash_comments=ext in SLASH_STYLE)]
         elif kind == "glsl":
             results[rel] += [(a, b, m, "shader") for a, b, m in check_balance(text)]
         elif kind == "sql":
@@ -1040,7 +1043,7 @@ def run(root):
                 elif ek == "json":
                     results[rel] += [(a + off, b, m, "json in html") for a, b, m in check_json(code)]
                 elif ek == "css":
-                    results[rel] += [(a + off, b, m, "css in html") for a, b, m in check_balance(code)]
+                    results[rel] += [(a + off, b, m, "css in html") for a, b, m in check_balance(code, slash_comments=False)]
 
     engine = "none"
     if js_jobs:

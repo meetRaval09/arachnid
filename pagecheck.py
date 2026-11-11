@@ -50,7 +50,203 @@ RULES = {
     "page-missing-file": ("decision", "a file the page asks for does not exist",
                           "the browser gets 404 (Not found): a picture is missing, a style or script is not applied",
                           "fix the path, or add the file"),
+    "page-overflow": ("decision", "the page is wider than the screen",
+                      "something sticks out to the right, so visitors get a sideways scrollbar and the page wobbles "
+                      "left and right on phones", "give that element max-width: 100% (or let it wrap / shrink)"),
+    "page-sticky-trapped": ("decision", "position: sticky that never sticks",
+                            "sticky only works when no box around it cuts off overflow; here a parent with overflow "
+                            "hidden/auto (that does not scroll itself) traps it, or no top / bottom is set",
+                            "remove overflow from that parent (or use overflow: clip), and give the sticky element top: 0"),
+    "page-invisible-text": ("decision", "text in the same colour as its background",
+                            "the text is there but nobody can see it", "change the text colour or the background"),
+    "page-zindex-ignored": ("idea", "z-index that does nothing",
+                            "z-index only works on positioned elements (position: relative / absolute / fixed / sticky) "
+                            "or flex / grid children; this element is neither, so it is not lifted above anything",
+                            "add position: relative, or remove the z-index"),
+    "page-low-contrast": ("idea", "text that is hard to read",
+                          "the text colour is too close to its background (contrast below 3:1; 4.5:1 is the "
+                          "accessibility guideline)", "darken the text or lighten the background"),
 }
+
+MEASURE_JS = r"""
+(phone) => {
+  const out = {overflow: null, sticky: [], invisible: [], low: [], lowCount: 0};
+  const de = document.documentElement, vw = de.clientWidth;
+  const desc = (e) => ({tag: e.tagName.toLowerCase(), id: e.id || "", cls: (typeof e.className === "string" ? e.className : "").trim().split(/\s+/).filter(Boolean).slice(0, 3).join(" ")});
+  const cs = (e) => getComputedStyle(e);
+  const name = (a) => "<" + a.tagName.toLowerCase() + (a.id ? ' id="' + a.id + '"' : "") + (typeof a.className === "string" && a.className.trim() ? ' class="' + a.className.trim().slice(0, 30) + '"' : "") + ">";
+  // 1. the page is wider than the screen (unless html/body cut it off: then there is no sideways scrollbar)
+  const cut = (v) => v === "hidden" || v === "clip";
+  const noScroll = cut(cs(de).overflowX) || (cs(de).overflowX === "visible" && document.body && cut(cs(document.body).overflowX));
+  if (!noScroll && de.scrollWidth > vw + 1) {
+    const all = Array.from(document.body ? document.body.querySelectorAll("*") : []);
+    const sticks = new Set();
+    for (const e of all) {
+      const r = e.getBoundingClientRect();
+      if ((r.width === 0 && r.height === 0) || r.right <= vw + 1) continue;
+      let clipped = false, fixed = false;
+      for (let a = e; a && a !== document.body; a = a.parentElement) {
+        const st = cs(a);
+        if (st.position === "fixed") { fixed = true; break; }
+        if (a !== e && st.overflowX !== "visible" && a.getBoundingClientRect().right <= vw + 1) { clipped = true; break; }
+      }
+      if (!clipped && !fixed) sticks.add(e);
+    }
+    const top = Array.from(sticks).filter((e) => !sticks.has(e.parentElement));
+    if (top.length) {
+      const e = top[0], r = e.getBoundingClientRect();
+      out.overflow = {el: desc(e), by: Math.round(r.right - vw), page: de.scrollWidth, screen: vw, more: top.length - 1};
+    }
+  }
+  if (phone) return out;
+  // 2a. z-index that does nothing: not positioned, and not a flex / grid child
+  out.zindex = [];
+  for (const e of Array.from(document.querySelectorAll("body *"))) {
+    const st = cs(e);
+    if (st.zIndex === "auto" || st.position !== "static" || st.display === "none") continue;
+    const pd = e.parentElement ? cs(e.parentElement).display : "";
+    if (/flex|grid/.test(pd)) continue;
+    if (out.zindex.length < 5) out.zindex.push({el: desc(e), z: st.zIndex});
+  }
+  // 2. sticky elements that cannot stick
+  const htmlVisible = cs(de).overflowY === "visible" && cs(de).overflowX === "visible";
+  for (const e of Array.from(document.querySelectorAll("body *"))) {
+    const st = cs(e);
+    if ((st.position !== "sticky" && st.position !== "-webkit-sticky") || st.display === "none") continue;
+    if (st.top === "auto" && st.bottom === "auto" && st.left === "auto" && st.right === "auto") {
+      out.sticky.push({el: desc(e), why: "it has no top / bottom, so it never sticks"});
+      continue;
+    }
+    for (let a = e.parentElement; a && a !== de; a = a.parentElement) {
+      if (a === document.body && htmlVisible) break;       // body's overflow moves to the window
+      const s2 = cs(a);
+      const ov = [s2.overflowX, s2.overflowY];
+      if (ov.some((v) => v === "hidden" || v === "auto" || v === "scroll")) {
+        const scrolls = a.scrollHeight > a.clientHeight + 1 || a.scrollWidth > a.clientWidth + 1;
+        if (!scrolls) out.sticky.push({el: desc(e), why: "the " + name(a) + " around it has overflow: " + (ov[0] === ov[1] ? ov[0] : ov.join(" ")) + " and does not scroll itself"});
+        break;
+      }
+    }
+  }
+  // 3. invisible / hard-to-read text
+  const parse = (c) => { const m = (c || "").match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; };
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "OPTION", "TEMPLATE", "TITLE", "TEXTAREA", "SELECT"]);
+  const texts = [];
+  const walker = document.createTreeWalker(document.body || de, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n && texts.length < 400; n = walker.nextNode()) {
+    const e = n.parentElement;
+    if (!e || SKIP.has(e.tagName) || e.closest("svg") || n.textContent.trim().length < 2) continue;
+    if (texts.length && texts[texts.length - 1] === e) continue;
+    texts.push(e);
+  }
+  const sy = window.scrollY;
+  for (const e of texts) {
+    const st = cs(e);
+    if (st.visibility !== "visible" || st.display === "none") continue;
+    if ((st.webkitBackgroundClip || st.backgroundClip || "").includes("text")) continue;
+    const fill = parse(st.webkitTextFillColor);
+    if (fill && fill[3] === 0) continue;
+    let op = 1;
+    for (let a = e; a; a = a.parentElement) op *= parseFloat(cs(a).opacity);
+    if (op < 0.2) continue;
+    const fg = parse(st.color);
+    if (!fg || fg[3] < 0.5) continue;
+    window.scrollTo(0, Math.max(0, e.getBoundingClientRect().top + window.scrollY - 200));
+    const r = e.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.right < 0 || r.left > vw) continue;
+    const x = Math.min(vw - 1, Math.max(0, r.left + Math.min(r.width / 2, 20)));
+    const y = Math.min(innerHeight - 1, Math.max(0, r.top + r.height / 2));
+    const stack = document.elementsFromPoint(x, y);
+    const i = stack.indexOf(e);
+    if (i < 0) continue;                                    // covered by something else
+    let bg = null, unknown = false;
+    let floating = null;                                    // a fixed/sticky box: what is under it changes while scrolling
+    for (let a = e; a && a !== de; a = a.parentElement) { const p2 = cs(a).position; if (p2 === "fixed" || p2 === "sticky") { floating = a; break; } }
+    for (const b of stack.slice(i)) {
+      if (floating && !floating.contains(b)) { unknown = true; break; }
+      const sb = cs(b);
+      if (sb.backgroundImage !== "none" || ["IMG", "VIDEO", "CANVAS", "PICTURE", "IFRAME", "svg", "EMBED", "OBJECT", "INPUT"].includes(b.tagName) ||
+          (sb.backdropFilter && sb.backdropFilter !== "none")) { unknown = true; break; }
+      const c = parse(sb.backgroundColor);
+      if (c && c[3] >= 0.9) { bg = c; break; }
+      if (c && c[3] > 0.05) { unknown = true; break; }
+    }
+    if (unknown) continue;
+    if (!bg) {                                              // the window's background: html's, else body's (browsers spread it)
+      const hb = parse(cs(de).backgroundColor), bb = document.body ? parse(cs(document.body).backgroundColor) : null;
+      if ((hb && hb[3] > 0 && hb[3] < 0.9) || (cs(de).backgroundImage !== "none")) continue;
+      if (hb && hb[3] >= 0.9) bg = hb;
+      else if (document.body && cs(document.body).backgroundImage !== "none") continue;
+      else if (bb && bb[3] >= 0.9) bg = bb;
+      else if (bb && bb[3] > 0.05) continue;
+      else bg = [255, 255, 255, 1];
+    }
+    const k = ratio(fg, bg);
+    const item = {el: desc(e), text: e.textContent.trim().replace(/\s+/g, " ").slice(0, 40), fg: st.color, bg: "rgb(" + bg.slice(0, 3).join(", ") + ")", ratio: Math.round(k * 100) / 100};
+    if (k < 1.1) { if (out.invisible.length < 3) out.invisible.push(item); }
+    else if (k < 3) { out.lowCount++; if (!out.low.length) out.low.push(item); }
+  }
+  window.scrollTo(0, sy);
+  return out;
+}
+"""
+
+
+def element_line(page_file, el):
+    """The line of the page where this element is written (found by its id, else its classes, else its tag)."""
+    try:
+        lines = Path(page_file).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return 0
+    tests = []
+    if el.get("id"):
+        tests.append(re.compile(r"""\bid\s*=\s*["']?%s["'\s>]""" % re.escape(el["id"])))
+    if el.get("cls"):
+        tests.append(re.compile(r"""<%s\b[^>]*class\s*=\s*["'][^"']*\b%s\b""" % (re.escape(el["tag"]), re.escape(el["cls"].split()[0]))))
+        tests.append(re.compile(r"""class\s*=\s*["'][^"']*\b%s\b""" % re.escape(el["cls"].split()[0])))
+    if not el.get("id") and not el.get("cls"):
+        tests.append(re.compile(r"<%s\b" % re.escape(el["tag"]), re.I))      # only the tag: its first use on the page
+    for t in tests:
+        for i, ln in enumerate(lines, 1):
+            if t.search(ln):
+                return i
+    return 0
+
+
+def css_rule_line(site, page_path, el, prop):
+    """(css file, line) of the declaration `prop` in a rule whose selector names this element's id or class."""
+    marks = (["#" + el["id"]] if el.get("id") else []) + ["." + c for c in (el.get("cls") or "").split()]
+    if not marks:
+        return None, 0
+    page = Path(site) / page_path
+    sheets = []
+    try:
+        html = page.read_text(encoding="utf-8", errors="replace")
+        sheets.append((page_path, html))
+        for href in re.findall(r"""<link[^>]+rel=["']?stylesheet[^>]*href=["']([^"'#?]+)|<link[^>]+href=["']([^"'#?]+)["'][^>]*rel=["']?stylesheet""", html, re.I):
+            h = href[0] or href[1]
+            if re.match(r"(?i)(https?:)?//", h):
+                continue
+            f = (Path(site) / h.lstrip("/")) if h.startswith("/") else (page.parent / h)
+            if f.exists():
+                sheets.append((os.path.relpath(f, site).replace(os.sep, "/"), f.read_text(encoding="utf-8", errors="replace")))
+    except OSError:
+        return None, 0
+    for rel, text in sheets:
+        for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", text):
+            sel = m.group(1)
+            if any(re.search(re.escape(mk) + r"(?![\w-])", sel) for mk in marks):
+                d = re.search(r"(?<![\w-])%s\s*:" % re.escape(prop), m.group(2))
+                if d:
+                    return rel, text.count("\n", 0, m.start(2) + d.start()) + 1
+    return None, 0
+
+
+def show(el):
+    return "<%s%s%s>" % (el["tag"], (' id="%s"' % el["id"]) if el.get("id") else "", (' class="%s"' % el["cls"]) if el.get("cls") else "")
+
 
 
 def switched_off(root):
@@ -108,7 +304,7 @@ def line_of(page_file, wanted):
     return 0
 
 
-def visit(browser, port, page_path, prefix, has_modules=True, declared=()):
+def visit(browser, port, page_path, prefix, has_modules=True, declared=(), has_viewport=False):
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
     page = ctx.new_page()
     errors, console, missing, data_failed, external_failed = [], [], [], [], set()
@@ -165,8 +361,18 @@ def visit(browser, port, page_path, prefix, has_modules=True, declared=()):
         page.wait_for_timeout(700)                  # errors from code that runs right after loading
     except Exception:
         pass
+    layout = []
+    try:
+        wide = page.evaluate(MEASURE_JS, False)
+        layout.append(("desktop", wide))
+        if has_viewport:                            # the page is made for phones: measure it at phone width too
+            page.set_viewport_size({"width": 375, "height": 740})
+            page.wait_for_timeout(300)
+            layout.append(("phone", page.evaluate(MEASURE_JS, True)))
+    except Exception:
+        pass
     ctx.close()
-    return errors, console, missing, sorted(set(data_failed)), [h.lstrip("!") for h in sorted(external_failed) if h.strip("!")]
+    return errors, console, missing, sorted(set(data_failed)), [h.lstrip("!") for h in sorted(external_failed) if h.strip("!")], layout
 
 
 def check(root, log=print):
@@ -199,7 +405,40 @@ def check(root, log=print):
                 browser = pw.chromium.launch()
                 for page_path in pages:
                     log("  opening %s" % (prefix + page_path))
-                    errors, console, missing, data_failed, ext = visit(browser, port, page_path, prefix, (site / "node_modules").exists(), links.declared_packages(root))
+                    try:
+                        src = (site / page_path).read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        src = ""
+                    vp = bool(re.search(r"""<meta[^>]+name\s*=\s*["']?viewport[^>]+width\s*=\s*device-width""", src, re.I))
+                    errors, console, missing, data_failed, ext, layout = visit(browser, port, page_path, prefix, (site / "node_modules").exists(), links.declared_packages(root), vp)
+                    seen_overflow = False
+                    for size, m in layout:
+                        if not m:
+                            continue
+                        ov = m.get("overflow")
+                        if ov and not seen_overflow:
+                            seen_overflow = True
+                            key = ("page-overflow", "on a %dpx-wide %s screen the page is %dpx wide: %s sticks out by %dpx%s" % (
+                                ov["screen"], "phone" if size == "phone" else "desktop", ov["page"], show(ov["el"]), ov["by"],
+                                (" (and %d more)" % ov["more"]) if ov["more"] else ""), prefix + page_path, element_line(site / page_path, ov["el"]))
+                            found.setdefault(key, ["decision", "", []])[2].append(prefix + page_path)
+                        for z in m.get("zindex") or []:
+                            f, ln = css_rule_line(site, page_path, z["el"], "z-index")
+                            key = ("page-zindex-ignored", "%s has z-index: %s but no position" % (show(z["el"]), z["z"]),
+                                   f or prefix + page_path, ln or element_line(site / page_path, z["el"]))
+                            found.setdefault(key, ["idea", "", []])[2].append(prefix + page_path)
+                        for st in m.get("sticky") or []:
+                            key = ("page-sticky-trapped", "%s: %s" % (show(st["el"]), st["why"]), prefix + page_path, element_line(site / page_path, st["el"]))
+                            found.setdefault(key, ["decision", "", []])[2].append(prefix + page_path)
+                        for it in m.get("invisible") or []:
+                            key = ("page-invisible-text", "\"%s\" in %s: text %s on %s" % (it["text"], show(it["el"]), it["fg"], it["bg"]),
+                                   prefix + page_path, element_line(site / page_path, it["el"]))
+                            found.setdefault(key, ["decision", "", []])[2].append(prefix + page_path)
+                        for it in m.get("low") or []:
+                            more = m.get("lowCount", 1) - 1
+                            key = ("page-low-contrast", "\"%s\" in %s: contrast %.2f:1%s" % (it["text"], show(it["el"]), it["ratio"],
+                                   (" (and %d more on this page)" % more) if more > 0 else ""), prefix + page_path, element_line(site / page_path, it["el"]))
+                            found.setdefault(key, ["idea", "", []])[2].append(prefix + page_path)
                     hint = ""
                     if data_failed:
                         hint = (" (this page asks a server for %s, which only your backend can answer; if that is the "

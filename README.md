@@ -56,20 +56,25 @@ complains about correct code. (It found real bugs in matplotlib, scikit-learn, m
 | **HTML forms, attributes and text** | `disabled="false"` (still disabled) · `data-userId` read as `dataset.userId` (undefined) · a file upload form without `multipart/form-data` (sends only the name) · form fields without `name` (never sent) · `title="Click "Here""` · `</br>` (an extra line break) · a `<div>` inside `<head>` (the rest of the head lands in the body) · garbled text like `â€™` from a wrong encoding · ideas: missing `<meta charset>`, non-`<li>` inside a list, h1 jumping to h4, `aria-hidden` on something clickable, `<base>` |
 | **Pages, forms and scripts together** | a comment ended with `-- >` (hides the rest) · `media="pritn"` · `&amp;copy;` · links to missing pages and `#anchors` · `www.site.com` without https:// · `C:\Users\...` paths · `method="POTS"`, `type="buton"` (becomes submit) · `min` bigger than `max` · radio names `shipping` / `Shipping` · two `selected` options · `form="..."` pointing nowhere · a field named `submit` breaking `form.submit()` · `onclick` calling a function inside a module · `.value` on a `<span>` · a checkbox tested with `.value` · `499 + input.value` = `"4991"` · objects saved to `localStorage` · `r.json` without `()` · `transition: 0.3` without `s` |
 | **File paths** | `img/Logo.PNG` when the file is `logo.png`: works on Windows and Mac, 404 on a Linux web server |
-| **CSS** | misspelled properties (`widht`, `colr`) · impossible colours (`#ggg`) · sizes without units (`width: 100`), also inside `<style>` blocks |
+| **CSS** | misspelled properties (`widht`, `colr`) and values (`display: flexx`, `text-align: centre`) · impossible colours (`#ggg`) · sizes and times without units (`width: 100`, `transition: 0.3`) · units that do not exist (`10pxx`, `10 px`) · `var(--brand-colour)` when only `--brand-color` exists · `@media (max-width: 768)` without a unit · `calc(100%-2rem)` without spaces · `//` comments (CSS has none - the next rule dies) · a missing `;` · `@import` after other rules · a `{` never closed · also inside `<style>` blocks |
 | **JSON** | the same key twice · `package.json` starting a file that does not exist |
 | **Markdown** | links and pictures to missing files · links to headings that do not exist · a code block that never closes · `#Heading` without a space |
 
 ### Page health (opens your pages in a real browser)
 
 What you would see with DevTools open on every page, done for you: JavaScript errors while a page loads (with the
-file and line), errors written to the console, and pictures, styles, scripts or fonts that answer 404. Built projects
+file and line), errors written to the console, and pictures, styles, scripts or fonts that answer 404. It also
+MEASURES the layout: a page wider than the screen (with the element that sticks out, at phone and desktop width),
+`position: sticky` that can never stick, text in the same colour as its background, text too light to read, and
+`z-index` that does nothing (pointing at the CSS line). Built projects
 (Vite, React, ...) are built in a temporary copy first. Errors on pages that need your backend, or a permission the
 test browser does not give (location, camera), are marked as ideas instead of decisions. To switch it off: `"pagecheck": false` in
 `arachnid.config.json`, or `ARACHNID_NO_BROWSER=1`.
 
 **Brutal test:** a shop website with 38 bugs hidden deep in its HTML, forms, scripts and styles - Arachnid finds
 all 38 on their exact lines, and reports nothing at all on the same site with the bugs fixed.
+The **brutal CSS test** does the same with 30 CSS bugs (from `var(--brand-colour)` to a sticky header trapped by
+`overflow: hidden`): 30 of 30 found, nothing on the clean twin.
 
 Tested on about 2,200 real pages from Google Chrome's and MDN's sample sites: every new HTML finding was a real
 bug (for example a `<ul>` inside a `<p>` and `<a>` typed where `</a>` was meant), with **zero** false alarms.
@@ -258,6 +263,7 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
 python qa_accuracy.py         # 30 planted problems must be found, 20 clean look-alikes must stay quiet
 python qa_html_brutal.py      # a shop website with 38 deeply hidden bugs: all must be found, its clean twin must get 0 findings
+python qa_css_brutal.py       # a studio website with 30 deeply hidden CSS bugs: all must be found, its clean twin must get 0 findings
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 
