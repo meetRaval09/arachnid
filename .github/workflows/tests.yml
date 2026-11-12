@@ -24,6 +24,8 @@ jobs:
         run: python qa_html_brutal.py
       - name: Brutal CSS test (30 deeply hidden CSS bugs, clean twin must stay silent)
         run: python qa_css_brutal.py
+      - name: Brutal JavaScript test (14 debugging leftovers, clean twin must stay silent)
+        run: python qa_js_brutal.py
       - name: Brutal slim test (shorter code, same product - traps untouched, wrong AI answers stopped)
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/esb" esbuild@0.25.0

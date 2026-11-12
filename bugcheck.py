@@ -165,6 +165,22 @@ RULES = {
     "js-bad-month": ("decision", "a date in the wrong month",
                      "months in new Date() count from 0 (January = 0, December = 11); 12 rolls over to January of the next year",
                      "subtract 1 from the month"),
+    "js-debugger-left": ("decision", "a `debugger;` left in the code",
+                         "for anyone who has the browser's developer tools open, the page FREEZES on this line until they press resume",
+                         "remove the line (it was only needed while you were hunting the bug)"),
+    "js-empty-catch": ("idea", "an error that is silently swallowed",
+                       "an empty catch {} hides every error from this block, so if it breaks, nobody ever finds out why",
+                       "at least log it (`console.error(e)`), or add a comment saying why the error is safe to ignore"),
+    "js-throw-text": ("idea", "an error thrown as plain text",
+                      "`throw \"...\"` throws text, not an Error: there is no record of where it happened, and `e.message` is undefined",
+                      "write `throw new Error(\"...\")`"),
+    "js-console-timer": ("idea", "a console timer or group that is never closed",
+                         "console.time() needs a matching console.timeEnd() with the same name (and group() a groupEnd()), otherwise "
+                         "nothing is measured, the console warns, or every later message ends up inside the group",
+                         "add the matching timeEnd(\"name\") / groupEnd(), or remove the leftover"),
+    "js-console-log-left": ("idea", "debugging messages left in page code",
+                            "console.log lines written while hunting a bug show up in every visitor's console",
+                            "remove the ones that were only for debugging"),
     # ---------------------------------------------------------------- HTML
     "html-duplicate-id": ("decision", "the same id twice on one page",
                           "an id must be unique; scripts and labels only ever find the first element", "give each element its own id"),
@@ -1088,7 +1104,79 @@ def _check_js(rel, text):
     for m in re.finditer(r"\bnew\s+Date\s*\(\s*(\d{4})\s*,\s*(\d{1,2})\s*[,)]", code):
         if int(m.group(2)) >= 12:
             add(out, rel, _line(text, m.start()), "js-bad-month", "new Date(%s, %s, ...) - month %s does not exist" % (m.group(1), m.group(2), m.group(2)))
+    _debug_leftovers(rel, text, code, string_at, out)
     return out
+
+
+TEST_FILE = re.compile(r"(?i)(^|/)(tests?|__tests__|spec|e2e|cypress|playwright|stories|__mocks__)(/|$)|[._-](test|spec|stories)\.[jt]sx?$")
+LEFTOVER_MSG = re.compile(r"(?i)^\s*(?:here|here\s*\d+|(?:i'?m |got |made it |we'?re )?here!*|test(?:ing)?\s*\d*|asdf\w*|x{2,}|a{3,}|"
+                          r"debug\s*\d*|check(?:point)?\s*\d*|it works|works|working|reached|inside|called|yay|wtf|"
+                          r"hello|hi|foo|bar|[!?.*=#>-]{2,}|\d{1,3})\s*[!.:?]*\s*$")
+DEBUG_GUARD = re.compile(r"(?i)\b(debug|verbose|dev(elopment)?|__DEV__|isDev|logging|log_?level|trace)\b")
+
+
+def _debug_leftovers(rel, text, code, string_at, out):
+    """Things left behind while hunting a bug by hand: a debugger statement, an error swallowed in silence, an error
+    thrown as text, console timers / groups that never close, console.log lines in page code. Reported, never fixed."""
+    low = text.lower()
+    if len(text) > 300000 or "emscripten" in low or re.search(r"@generated|auto-?generated|do not edit", low[:3000]):
+        return                                      # written by a compiler, not by a person
+    # debugger; - only the statement (the word cannot be anything else outside strings, except a property / key)
+    for m in re.finditer(r"(?<![.\w$])debugger\b(?!\s*[:(=.])", code):
+        add(out, rel, _line(text, m.start()), "js-debugger-left", "`debugger` statement")
+    # catch (e) {} with nothing inside - not even a comment saying why
+    for m in re.finditer(r"\bcatch\s*(?:\(\s*(?!_\w*\s*\)|ignored?\s*\)|_?unused\w*\s*\))[^()]*\))?\s*\{", code):
+        close = _match_close(code, m.end() - 1)
+        if close < len(code) and not code[m.end():close].strip() and not text[m.end():close].strip():
+            add(out, rel, _line(text, m.start()), "js-empty-catch", "`catch {}` with nothing inside")
+    # throw "text"
+    for m in re.finditer(r"(?<![.\w$])throw\s+(['\"`])", code):
+        s = string_at(m.start(1))
+        add(out, rel, _line(text, m.start()), "js-throw-text", "`throw %s...%s`" % (m.group(1), m.group(1)) if s is None
+            else "`throw %s%s%s`" % (m.group(1), s[:30], m.group(1)))
+    # console.time / timeEnd and group / groupEnd
+    started, ended, dynamic = {}, set(), False
+    for m in re.finditer(r"\bconsole\.(time|timeEnd|timeLog)\s*\(\s*(['\"`]?)", code):
+        if not m.group(2):
+            dynamic = dynamic or not re.match(r"\s*\)", code[m.end():m.end() + 3])
+            label = "default" if re.match(r"\s*\)", code[m.end():m.end() + 3]) else None
+        else:
+            label = string_at(m.end() - 1)
+            if label is None or "${" in label:
+                dynamic, label = True, None
+        if label is None:
+            continue
+        if m.group(1) == "time":
+            started.setdefault(label, _line(text, m.start()))
+        else:
+            ended.add(label)
+    if not dynamic:
+        for label, line in started.items():
+            if label not in ended:
+                add(out, rel, line, "js-console-timer", "console.time(\"%s\") is never ended" % label[:30])
+    opens = [m for m in re.finditer(r"\bconsole\.group(?:Collapsed)?\s*\(", code)]
+    closes = len(re.findall(r"\bconsole\.groupEnd\s*\(", code))
+    if len(opens) > closes:
+        add(out, rel, _line(text, opens[closes].start()), "js-console-timer",
+            "%d console.group() but %d groupEnd()" % (len(opens), closes))
+    # console.log in page code (one finding per file, never in tests, tools or code that logs on purpose)
+    is_page = rel.lower().endswith((".jsx", ".tsx", ".vue", ".svelte", ".html.js", ".htm.js")) or \
+        bool(re.search(r"\b(document|window)\.\w", code))
+    if is_page and not TEST_FILE.search(rel) and not re.search(r"\bprocess\.(argv|stdout|exit)\b|#!\s*/usr/bin/env\s+node", text[:4000] + code):
+        hits = []
+        for m in re.finditer(r"(?<![.\w$])console\.(log|debug)\s*\(\s*(['\"`])", code):
+            msg = string_at(m.end() - 1)
+            close = _match_close(code, m.end() - code[m.start():m.end()][::-1].find("(") - 1)
+            if msg is None or not LEFTOVER_MSG.match(msg) or code[m.end() + len(msg) + 1:close].strip(" \n,") and \
+                    not re.match(r"(?i)\s*(here|x+|test|debug|check)", msg):
+                continue                            # a real message ("Saved 3 items") is not a leftover
+            ls = code.rfind("\n", 0, m.start())
+            near = code[max(0, code.rfind("\n", 0, max(0, ls - 1) - 1)):m.start()]
+            if not DEBUG_GUARD.search(near):
+                hits.append(m)
+        if hits:
+            add(out, rel, _line(text, hits[0].start()), "js-console-log-left",
+                "%d console.log line%s (first here)" % (len(hits), "" if len(hits) == 1 else "s"))
 
 
 # =================================================================================================== HTML

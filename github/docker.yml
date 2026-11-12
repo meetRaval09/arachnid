@@ -44,6 +44,7 @@ jobs:
           docker run --rm arachnid:test selftest          # repair, safety gate, alarms, approvals, undo
           docker run --rm arachnid:test accuracy          # 30 planted problems found, decoys quiet
           docker run --rm --entrypoint python arachnid:test /app/qa_slim_brutal.py   # shorter code, the same product
+          docker run --rm --entrypoint python arachnid:test /app/qa_js_brutal.py     # JavaScript debugging leftovers
           # a project shared from this computer, as a normal (not root) user - files must stay the user's
           mkdir -p /tmp/demo && printf '# Demo\n\nWe recieve the data.\n' > /tmp/demo/README.md
           docker run --rm --user "$(id -u):$(id -g)" -v /tmp/demo:/project -v demo-reports:/app/reports -v demo-backups:/app/backups arachnid:test fix || true

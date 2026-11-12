@@ -18,6 +18,7 @@ again on every push, so if Arachnid ever gets worse, the badge above turns red.
 |---|---|---|
 | A shop website with **38 bugs hidden** in its HTML, forms, scripts and styles | **38 / 38** found on the exact line · **0** findings on the same site with the bugs fixed | `python qa_html_brutal.py` |
 | A studio website with **30 hidden CSS bugs** | **30 / 30** found · **0** on the clean twin | `python qa_css_brutal.py` |
+| A shop's JavaScript with **14 debugging leftovers** (`debugger;`, swallowed errors, errors thrown as text, timers never stopped, `console.log("here")`) | **14 / 14** found · **0** on the clean twin | `python qa_js_brutal.py` |
 | AI-style long code, plus **15 traps** that only *look* shorter | **22 / 22** shorter versions found · **0** traps touched · **0** behaviour differences in 447 side-by-side calls | `python qa_slim_brutal.py` |
 | **30 planted problems** and **20 correct look-alikes**, across languages | **30 / 30** found · **0** false complaints | `python qa_accuracy.py` |
 | A change that moves a picture by **one pixel** | caught - the fix is **not** applied | `python arachnid.py selftest` |
@@ -45,7 +46,11 @@ and finds **nothing at all** on the clean twin.
 | **HTML** (38 bugs) | a small shop: 3 pages, 2 scripts, 1 style sheet | a comment written `-- >` instead of `-->`, so the whole product list silently disappears · two radio buttons named `shipping` and `Shipping`, so both can be picked · `499 + "1"` giving `"4991"` instead of `500` · a form sent with `method="POTS"` · a picture loaded from `C:\Users\...` that works only on the developer's own laptop |
 | **CSS** (30 bugs) | a studio site: 1 page, 4 style sheets | `var(--brand-colour)` when the variable is spelled `--brand-color` · `@media (max-width: 768)` with no `px`, so the phone layout never turns on · `calc(100%-2rem)` with no spaces, which browsers ignore · `text-align: centre` · white text on a white background · a banner wider than a phone screen |
 | **Shorter code** (22 + 15 traps) | a small project written the long, AI-style way in Python, JavaScript and TypeScript | 22 places that really can be shorter, and 15 **traps** that only *look* like they can - for example, a loop of decimal numbers, which `sum()` would add slightly differently. Arachnid must shorten the 22, leave all 15 traps alone, and the old and new code must give exactly the same answers when run side by side |
+| **JavaScript leftovers** (14) | a small shop: a page with an inline script, 2 scripts, a React component, a TypeScript file | a `debugger;` that freezes the page for anyone with developer tools open · an empty `catch {}` that hides a broken saved cart · `throw "Item id is missing"` (text, not an Error, so no record of where it happened) · `console.time("total")` ended as `console.timeEnd("Total")` · a `console.group()` never closed · `console.log("got here!!")`. The clean twin is full of look-alikes that must stay quiet: `options.debugger = true`, a `catch` with a comment explaining it, `throw new Error(...)`, real log messages, a test file and a command-line tool that are allowed to log |
 | **Accuracy** (30 + 20 look-alikes) | small files in several languages | 30 planted problems that must be found, and 20 pieces of correct code that look wrong, where Arachnid must stay quiet |
+
+**Security test.** Six apps that security teams build *on purpose* with known holes, to train people. Their
+authors list every hole, so we can count exactly how many Arachnid finds:
 
 ![Vulnerable training apps: 44 holes documented, 42 found](docs/charts/security.png)
 
@@ -101,6 +106,7 @@ complains about correct code. (It found real bugs in matplotlib, scikit-learn, m
 |---|---|
 | **Python** | `if x == "a" or "b"` (always true) · `items = items.sort()` (None) · `name.strip()` (result thrown away) · `"Hello {name}"` without `f` · `range(len(x) + 1)` · a `while` loop whose variable never changes · `int(input())` that crashes on letters · a default like `when=datetime.now()` that never updates · an error created but not raised · a grade function that returns nothing for low scores |
 | **JavaScript / TypeScript** | `if (x = 5)` · `x === NaN` · `typeof x === "numbr"` · `return` with the value on the next line · `fetch()` used without `await` · `forEach(async ...)` · `useEffect(async ...)` · `onClick={handle()}` · `i <= list.length` · `.lenght`, `innerHtml` · `getElementById("#menu")` · `new Date(2024, 12, 1)` · a duplicate `case` |
+| **JavaScript debugging leftovers** | a `debugger;` left in the code (freezes the page for anyone with developer tools open) · an empty `catch {}` that hides errors · `throw "text"` instead of `throw new Error(...)` · `console.time()` with no matching `timeEnd()`, a `console.group()` never closed · ideas: `console.log("here")`-style lines left in page code |
 | **HTML** | the same id twice · a `<label>` for a missing id · a quantity or price field that accepts negative numbers · a button that submits the form by accident · `type="emial"` · a script with a misspelled type · a script looking for an element no page has · `onclick` calling a function that does not exist |
 | **HTML the browser quietly rewrites** | a `<div>`, list or table inside a `<p>` (the browser ends the paragraph early) · a link inside a link · a form inside a form · a button inside a button · `<div />` (stays open and swallows the rest) · text put directly inside `<table>` (moved above it) · an attribute quote that never closes · a stray `>` or `"` shown on the page · `&nbps;` (shown literally) · `&copy2024` (shown as ©2024) · CSS or scripts using `table > tr` (never matches) |
 | **HTML forms, attributes and text** | `disabled="false"` (still disabled) · `data-userId` read as `dataset.userId` (undefined) · a file upload form without `multipart/form-data` (sends only the name) · form fields without `name` (never sent) · `title="Click "Here""` · `</br>` (an extra line break) · a `<div>` inside `<head>` (the rest of the head lands in the body) · garbled text like `â€™` from a wrong encoding · ideas: missing `<meta charset>`, non-`<li>` inside a list, h1 jumping to h4, `aria-hidden` on something clickable, `<base>` |
@@ -409,6 +415,7 @@ python arachnid.py selftest   # the whole chain: repair, safety gate (incl. the 
 python qa_accuracy.py         # 30 planted problems must be found, 20 clean look-alikes must stay quiet
 python qa_html_brutal.py      # a shop website with 38 deeply hidden bugs: all must be found, its clean twin must get 0 findings
 python qa_css_brutal.py       # a studio website with 30 deeply hidden CSS bugs: all must be found, its clean twin must get 0 findings
+python qa_js_brutal.py        # a shop's JavaScript with 14 debugging leftovers: all must be found, its clean twin must get 0 findings
 python qa_slim_brutal.py      # shorter code: 22 proven shorter versions found, 15 traps untouched, old and new code behave identically, wrong AI answers stopped
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
