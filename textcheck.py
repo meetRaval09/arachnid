@@ -171,7 +171,7 @@ def clean_md(s):
     s = re.sub(r"^\s*>+\s?", "", s)
     s = re.sub(r"^\s*#{1,6}\s+", "", s)
     s = LIST_MARK.sub("", s)
-    s = re.sub(r"`[^`]*`", " CODE ", s)
+    s = re.sub(r"`[^`]*`", "CODE", s)                # no padding: "`a.py`, `b.py`" must not become "CODE , CODE"
     s = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", s)
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)
     s = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", s)

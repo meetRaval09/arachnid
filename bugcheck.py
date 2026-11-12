@@ -109,6 +109,26 @@ RULES = {
     "py-falls-through": ("decision", "a function that sometimes returns nothing",
                          "some paths return a value, but if none of the conditions match the function ends and gives back None",
                          "add a final return (or raise) for the remaining cases"),
+    "py-breakpoint-left": ("decision", "a debugger pause left in the code",
+                           "breakpoint() / pdb.set_trace() STOPS the program and waits for someone to type at the keyboard - "
+                           "a server, a scheduled job or a test run simply hangs",
+                           "remove the line (it was only needed while you were hunting the bug)"),
+    "py-remote-debug-left": ("decision", "a remote debugger switched on in the code",
+                             "debugpy.listen() / a remote pdb opens a network door: whoever reaches that port can look inside "
+                             "the running program and run code in it",
+                             "remove it, or only switch it on from an environment variable on your own computer"),
+    "py-except-pass": ("idea", "errors silently swallowed",
+                       "`except Exception: pass` hides every error from this block, so if it breaks, nobody ever finds out why",
+                       "at least log it (`logging.exception(...)`), catch only the error you expect, or add a comment saying why it is safe"),
+    "py-assert-guard": ("decision", "a safety check written with assert",
+                        "Python skips every assert when it runs with -O (optimised mode), so this check silently disappears",
+                        "use `if not ...: raise PermissionError(...)` (or ValueError) instead of assert"),
+    "py-debug-print": ("idea", "debugging prints left in the code",
+                       "prints like `print(f\"{x=}\")` or `print(\"here\")` were written while hunting a bug and now show up for every user",
+                       "remove the ones that were only for debugging, or use logging.debug()"),
+    "py-debug-logging": ("idea", "logging left at DEBUG level",
+                         "DEBUG level writes every internal detail to the log - slow, noisy, and it can leak private data",
+                         "use INFO by default and switch DEBUG on from a setting or a --verbose option"),
     # ---------------------------------------------------------------- JavaScript / TypeScript
     "js-assign-in-condition": ("decision", "a condition that changes a value instead of comparing it",
                                "a single = puts a value in; the condition then only checks that value",
@@ -774,7 +794,118 @@ def _check_python(rel, text):
         if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.BinOp) and isinstance(node.slice.op, ast.Div) and not uses_pandas:
             if not isinstance(node.value, ast.Name) or not re.search(r"(?i)(df|frame|data|path|dir|root)", node.value.id):
                 add(out, rel, line, "py-float-index", "`%s`" % ast.unparse(node)[:50])
+    _py_debug_leftovers(rel, text, tree, parent, module_funcs, out)
     return out
+
+
+PY_TEST_FILE = re.compile(r"(?i)(^|/)(tests?|testing|__tests__)/|(^|/)(test_[^/]*|[^/]*_tests?|conftest)\.py$")
+PY_PAUSE = {"breakpoint", "pdb.set_trace", "ipdb.set_trace", "pudb.set_trace", "debugpy.breakpoint", "pdbpp.set_trace",
+            "IPython.embed", "embed", "trepan.api.debug", "wdb.set_trace"}
+PY_REMOTE = {"debugpy.listen", "debugpy.wait_for_client", "pydevd.settrace", "pydevd_pycharm.settrace", "rpdb.set_trace",
+             "remote_pdb.set_trace", "RemotePdb", "remote_pdb.RemotePdb", "web_pdb.set_trace", "madbg.set_trace", "ptvsd.enable_attach",
+             "ptvsd.wait_for_attach"}
+PY_GUARD = re.compile(r"(?i)debug|verbose|pdb|breakpoint|trace|attach|environ|getenv|settings\.|config|DEV\b|args\.|opts?\.|flag")
+GUARDED_NAMES = re.compile(r"(?i)^(is_admin|is_superuser|is_staff|is_authenticated|is_authorized|is_authorised|is_logged_in|"
+                           r"logged_in|authenticated|authorized|authorised|has_perm|has_perms|has_permission|has_permissions|"
+                           r"has_access|check_password|verify_password|is_paid|is_verified|check_permission|check_permissions)$")
+
+
+def _py_debug_leftovers(rel, text, tree, parent, module_funcs, out):
+    """Things left behind while debugging Python by hand. Reported for a person to decide, never changed."""
+    lines = text.split("\n")
+    imports = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                imports[a.asname or a.name.split(".")[0]] = a.name if a.asname else a.name.split(".")[0]
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            for a in n.names:
+                imports[a.asname or a.name] = n.module + "." + a.name
+
+    def name_of(f):
+        d = _dotted(f)
+        if not d:
+            return ""
+        head, _, rest = d.partition(".")
+        full = imports.get(head, head)
+        return full + ("." + rest if rest else "")
+
+    def guarded(node):
+        """Inside `if DEBUG:` / `if os.environ.get(...)` / a function made for debugging / an except that is a crash hook."""
+        k = parent.get(node)
+        while k is not None:
+            if isinstance(k, (ast.If, ast.IfExp, ast.While)) and PY_GUARD.search(ast.unparse(k.test)):
+                return True
+            if isinstance(k, (ast.FunctionDef, ast.AsyncFunctionDef)) and re.search(r"(?i)debug|pdb|trace|breakpoint|excepthook|post_?mortem", k.name):
+                return True
+            k = parent.get(k)
+        return False
+
+    test_file = bool(PY_TEST_FILE.search(rel))
+    prints = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        if isinstance(node, ast.Call):
+            nm = name_of(node.func)
+            short = _dotted(node.func)
+            if (nm in PY_PAUSE or short in PY_PAUSE) and not (short in module_funcs) and not guarded(node):
+                if short == "embed" and not nm.startswith("IPython"):
+                    pass
+                elif short == "breakpoint" and imports.get("breakpoint"):
+                    pass                                # some other library's breakpoint()
+                else:
+                    add(out, rel, line, "py-breakpoint-left", "`%s()`" % short)
+            elif (nm in PY_REMOTE or short in PY_REMOTE) and not guarded(node):
+                add(out, rel, line, "py-remote-debug-left", "`%s(...)`" % short)
+            # logging at DEBUG level, written as a plain value (not chosen from a setting)
+            elif nm in ("logging.basicConfig",) or isinstance(node.func, ast.Attribute) and node.func.attr == "setLevel" and \
+                    re.fullmatch(r"(logging\.)?(getLogger\(\s*(['\"](root)?['\"])?\s*\)|root)", ast.unparse(node.func.value)):
+                lv = [kw.value for kw in node.keywords if kw.arg == "level"] if nm == "logging.basicConfig" else node.args[:1]
+                if any(kw.arg == "handlers" for kw in node.keywords):
+                    lv = []                             # the handlers decide what is shown - DEBUG here only lets them choose
+                if lv and re.fullmatch(r"(logging\.)?DEBUG|['\"]DEBUG['\"]|10", ast.unparse(lv[0])) and not test_file and not guarded(node):
+                    add(out, rel, line, "py-debug-logging", "`%s`" % ast.unparse(node)[:60])
+            # print(f"{x=}") / print("here")
+            elif short == "print" and node.args and not test_file and not guarded(node):
+                a0 = node.args[0]
+                seg = ast.get_source_segment(text, a0) or ""
+                if isinstance(a0, ast.JoinedStr) and re.search(r"\{[^{}]*[^=!<>{}]=\s*(![rsa])?(:[^{}]*)?\}", seg):
+                    prints.append(node)
+                elif isinstance(a0, ast.Constant) and isinstance(a0.value, str) and LEFTOVER_MSG.match(a0.value) and \
+                        a0.value.strip() not in ("", "-" * len(a0.value.strip()), "=" * len(a0.value.strip())):
+                    prints.append(node)
+        # except Exception: pass
+        if isinstance(node, ast.ExceptHandler) and node.type is not None and \
+                all(isinstance(s, ast.Pass) or isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) for s in node.body):
+            types = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+            if any(_dotted(x) in ("Exception", "BaseException") for x in types):
+                end = getattr(node, "end_lineno", node.lineno)
+                fn = parent.get(node)
+                while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    fn = parent.get(fn)
+                body = "\n".join(lines[node.lineno - 1:end])
+                tr = parent.get(node)
+                one = tr.body[0] if isinstance(tr, ast.Try) and len(tr.body) == 1 else None
+                tiny = isinstance(one, (ast.Import, ast.ImportFrom)) or isinstance(one, ast.Expr) and isinstance(one.value, ast.Call) and \
+                    re.search(r"(?i)(^|[._])(close|remove|unlink|rmdir|rmtree|kill|terminate|cancel|shutdown|flush|delete|release|"
+                              r"unregister|disconnect|stop|join|cleanup|clean_?up|setlocale|chmod|chown|unlock|detach|dispose|"
+                              r"destroy|free|reset|restore|unsubscribe|discard)$", _dotted(one.value.func) or "")
+                if "#" not in body and not tiny and not (fn is not None and fn.name in ("__del__", "__exit__", "__repr__", "close", "cleanup")):
+                    add(out, rel, node.lineno, "py-except-pass", "`except %s: pass`" % ast.unparse(node.type)[:40])
+        # assert used to guard access or money (not in tests, where assert is the whole point)
+        if isinstance(node, ast.Assert) and not test_file and not rel.endswith("_test.py"):
+            names = {x.id for x in ast.walk(node.test) if isinstance(x, ast.Name)} | \
+                    {x.attr for x in ast.walk(node.test) if isinstance(x, ast.Attribute)} | \
+                    {_dotted(x.func).split(".")[-1] for x in ast.walk(node.test) if isinstance(x, ast.Call) and _dotted(x.func)}
+            hit = sorted(n for n in names if GUARDED_NAMES.search(n))
+            fn = parent.get(node)
+            while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fn = parent.get(fn)
+            if hit and fn is not None and not re.match(r"(?i)test", fn.name):
+                add(out, rel, line, "py-assert-guard", "`assert %s`" % ast.unparse(node.test)[:50])
+    if prints:
+        add(out, rel, prints[0].lineno, "py-debug-print",
+            "%d debugging print%s (first here)" % (len(prints), "" if len(prints) == 1 else "s"))
 
 
 # =================================================================================================== JavaScript / TypeScript
@@ -1111,7 +1242,7 @@ def _check_js(rel, text):
 TEST_FILE = re.compile(r"(?i)(^|/)(tests?|__tests__|spec|e2e|cypress|playwright|stories|__mocks__)(/|$)|[._-](test|spec|stories)\.[jt]sx?$")
 LEFTOVER_MSG = re.compile(r"(?i)^\s*(?:here|here\s*\d+|(?:i'?m |got |made it |we'?re )?here!*|test(?:ing)?\s*\d*|asdf\w*|x{2,}|a{3,}|"
                           r"debug\s*\d*|check(?:point)?\s*\d*|it works|works|working|reached|inside|called|yay|wtf|"
-                          r"hello|hi|foo|bar|[!?.*=#>-]{2,}|\d{1,3})\s*[!.:?]*\s*$")
+                          r"hello|hi|foo|bar|\d{1,3})\s*[!.:?]*\s*$")
 DEBUG_GUARD = re.compile(r"(?i)\b(debug|verbose|dev(elopment)?|__DEV__|isDev|logging|log_?level|trace)\b")
 
 
