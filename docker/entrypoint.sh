@@ -19,7 +19,7 @@ case "$cmd" in
         echo "Open this address in your browser:  http://127.0.0.1:${ARACHNID_PORT:-8765}/"
         echo "(Press Ctrl+C here to stop the dashboard.)"
         exec python /app/dashboard.py /project --host 0.0.0.0 --port 8765 --no-browser "$@" ;;
-    scan|fix|crawl|insights|triage|advise|netcheck|size|leaks|apply-approved)
+    scan|fix|crawl|insights|triage|advise|slim|netcheck|size|leaks|apply-approved)
         need_project
         exec python /app/arachnid.py "$cmd" /project "$@" ;;
     undo|proposals|approve|reject|selftest)
@@ -46,9 +46,11 @@ Arachnid - finds problems in your project and fixes only the ones it can prove a
   fix         fix what is provably safe (backed up first)
   undo        put the last fix back (repeat to go further back)
   dashboard   the control room in your browser (http://127.0.0.1:8765)
+  slim        shorter code, the SAME product: proven-identical shorter versions as proposals
+              (slim --ai: also ask an AI with the Ponytail rules - pass -e ANTHROPIC_API_KEY or -e ARACHNID_AI_CMD)
   proposals   list suggestions waiting for approval;  approve / reject <ids>
   selftest    prove the whole chain works inside this container
-  accuracy    the planted-problem test (15 must be found, decoys must stay quiet)
+  accuracy    the planted-problem test (30 must be found, decoys must stay quiet)
   netcheck, size, leaks, advise, insights, triage, crawl   the extra checks
   version     show what is inside the image
 

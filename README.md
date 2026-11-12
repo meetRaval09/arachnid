@@ -105,6 +105,34 @@ files of professional code it raised **zero** false alarms. To keep the library 
 What it cannot do: it reads code, it does not attack your running app, and it cannot know your business rules (who
 may see whose data). For an app that handles money or personal data, it does not replace a professional security review.
 
+### Shorter code, the same product (slim)
+
+AI assistants often write ten lines where three do the same. `python arachnid.py slim` finds those places and offers
+the shorter version - **only when it can prove the program stays exactly the same**:
+
+- **Python:** every rewrite is one of a small set of rules whose sameness is known (`if x: return True / else:
+  return False`, a loop that only appends, a search loop that becomes `any()` / `all()`, a value stored only to be
+  returned ...), and the new file must reduce to exactly the same "canonical" program as the old one.
+- **JavaScript / TypeScript:** esbuild must read the old and the new file as the same program.
+- **Never touched, on purpose:** code with your comment in it, lines that would become hard to read, test files, and
+  every trap that only LOOKS shorter: `sum()` of decimals (since Python 3.12 it adds more precisely than a loop),
+  `x or default` (wrong for `0` and `""`), reading a getter twice, a dropped `await`, a loop inside `try` or
+  `with suppress(...)`, a loop variable used after the loop.
+
+Nothing changes until you approve: `python arachnid.py approve <id>`, then `python arachnid.py apply-approved` checks
+the proof again before a file is touched (`undo` puts it back).
+
+**With an AI:** `python arachnid.py slim --ai` sends long functions to an AI together with the
+[Ponytail](https://github.com/DietrichGebert/ponytail) rules ("the smallest correct solution"). Arachnid never
+trusts the answer. Each one is either **proven** the same program, or **tested side by side**: the old and the new
+function run on hundreds of inputs and must give identical results, result types, errors, printed output and changes
+to the inputs - with at least 90% of the lines of both versions actually run. Everything else is thrown away. Set
+`ARACHNID_AI_CMD` (any AI command line, for example `claude -p`) or `ANTHROPIC_API_KEY`; the key is never stored.
+
+**Tested on real libraries:** every proven shorter version Arachnid found was applied to six popular Python libraries
+(click, boltons, more-itertools, sqlparse, cachetools, toolz - 186 edits, about 280 lines shorter) and to
+validator.js; each library's own test suite - about 5,500 tests - gives exactly the same result as before.
+
 ## Get started
 
 There are three ways to use Arachnid. Pick the one that fits you; they can be combined.
@@ -264,6 +292,7 @@ python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, ap
 python qa_accuracy.py         # 30 planted problems must be found, 20 clean look-alikes must stay quiet
 python qa_html_brutal.py      # a shop website with 38 deeply hidden bugs: all must be found, its clean twin must get 0 findings
 python qa_css_brutal.py       # a studio website with 30 deeply hidden CSS bugs: all must be found, its clean twin must get 0 findings
+python qa_slim_brutal.py      # shorter code: 22 proven shorter versions found, 15 traps untouched, old and new code behave identically, wrong AI answers stopped
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```
 
@@ -279,3 +308,5 @@ The Docker image is built, tested (the same self-test and accuracy test, inside 
 
 MIT, see [LICENSE](LICENSE). The bundled spell checker is
 [pyspellchecker](https://github.com/barrust/pyspellchecker) by Tyler Barrus (MIT, see `vendor/LICENSE-pyspellchecker.txt`).
+The AI instructions in `ai/ponytail/` are [Ponytail](https://github.com/DietrichGebert/ponytail) by DietrichGebert (MIT,
+see `ai/ponytail/LICENSE`).

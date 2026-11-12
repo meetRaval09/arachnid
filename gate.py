@@ -26,8 +26,9 @@ MAX_RUNS = 12
 
 def proven_same_program(root, items):
     """items: [(rel_path, old_text, new_text)].  Returns the set of rel_paths where the PROGRAM itself is provably
-    identical - only comments or spacing differ.  Python: the parsed program trees are equal.  JavaScript/TypeScript/CSS:
-    esbuild's minified output (comments and spacing removed) is equal.  Anything else is never 'proven'."""
+    identical - only comments or spacing differ, or the same program is written in a shorter, provably equivalent way.
+    Python: the parsed program trees are equal, or equal after slim.py's equivalence rules.  JavaScript/TypeScript/CSS:
+    esbuild's minified output is equal (names renamed, or names kept).  Anything else is never 'proven'."""
     import ast
     same, other = set(), []
     for rel, old, new in items:
@@ -36,6 +37,11 @@ def proven_same_program(root, items):
             try:
                 if ast.dump(ast.parse(old)) == ast.dump(ast.parse(new)):
                     same.add(rel)
+                else:
+                    # the same program written shorter: both files reduce to the same canonical program (slim.py RULES)
+                    from slim import same_python_program
+                    if same_python_program(old, new):
+                        same.add(rel)
             except Exception:
                 pass
         elif ext in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css"):
@@ -55,6 +61,13 @@ def proven_same_program(root, items):
                 for (r, o, n, e), x, y in zip(other, a, b):
                     if x is not None and x == y:
                         same.add(r)
+                rest = [(i, o) for i, o in enumerate(other) if o[0] not in same]
+                if rest:                        # names kept as written: catches the same program written shorter
+                    a = es.minified([(o[0] + ":old", o[1], loaders[i]) for i, o in rest], keep_names=True)
+                    b = es.minified([(o[0] + ":new", o[2], loaders[i]) for i, o in rest], keep_names=True)
+                    for (i, o), x, y in zip(rest, a, b):
+                        if x is not None and x == y:
+                            same.add(o[0])
         except Exception:
             pass
     return same

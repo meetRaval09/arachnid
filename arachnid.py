@@ -6,6 +6,8 @@ ARACHNID - one command for everything
     python arachnid.py fix   [folder]     FIX what is safe (every code/file fix goes through the safety gate first)
     python arachnid.py insights [folder]  SUGGESTIONS only: memory leaks, heavy memory, dead code, lighter libraries
     python arachnid.py advise [folder]    ADVICE: lighter frameworks, faster/smaller code (proposals - nothing changes)
+    python arachnid.py slim [folder]      SHORTER CODE, SAME PRODUCT: proven-identical shorter versions (proposals)
+                                          --ai: also ask an AI with the Ponytail rules; every answer is proven or tested
     python arachnid.py netcheck [folder]  every outside connection, mapped and checked (add --online to knock on each address)
     python arachnid.py size [folder]      WEIGH every page (what a visitor downloads); --build weighs the real build, --online adds outside files
     python arachnid.py leaks [folder]     PROVE memory leaks: use each page again and again in a hidden browser and watch the memory (about 1-3 s per page)
@@ -41,7 +43,7 @@ def run(tool, *args):
 
 def scan(root, webhook=None):
     steps = [("crawler.py", [root]), ("spellcheck.py", [root]), ("syntaxcheck.py", [root, "--fix", "--preview"]),
-             ("logiccheck.py", [root]), ("moneycheck.py", [root]), ("bugcheck.py", [root]), ("seccheck.py", [root]), ("vulncheck.py", [root]), ("textcheck.py", [root]), ("terms.py", [root]), ("netcheck.py", [root]), ("bundlesize.py", [root]), ("advisor.py", [root]), ("links.py", [root]), ("pagecheck.py", [root]), ("dedupe.py", [root]), ("clones.py", [root]), ("insights.py", [root])]
+             ("logiccheck.py", [root]), ("moneycheck.py", [root]), ("bugcheck.py", [root]), ("seccheck.py", [root]), ("vulncheck.py", [root]), ("textcheck.py", [root]), ("terms.py", [root]), ("netcheck.py", [root]), ("bundlesize.py", [root]), ("advisor.py", [root]), ("slim.py", [root]), ("links.py", [root]), ("pagecheck.py", [root]), ("dedupe.py", [root]), ("clones.py", [root]), ("insights.py", [root])]
     codes = {}
     for tool, args in steps:
         if not (HERE / tool).exists():
@@ -236,12 +238,14 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(description="Arachnid - find and safely fix problems in a project.")
-    ap.add_argument("command", choices=["scan", "fix", "undo", "selftest", "crawl", "insights", "triage", "advise", "netcheck", "size", "leaks", "proposals", "approve", "reject", "apply-approved"])
+    ap.add_argument("command", choices=["scan", "fix", "undo", "selftest", "crawl", "insights", "triage", "advise", "slim", "netcheck", "size", "leaks", "proposals", "approve", "reject", "apply-approved"])
     ap.add_argument("root", nargs="*", default=None, help="folder (or proposal ids for approve / reject)")
     ap.add_argument("--build", action="store_true", help="size / leaks: build the project first (in a temporary copy) and test the real output")
     ap.add_argument("--online", action="store_true", help="netcheck: also knock on each outside address")
     ap.add_argument("--webhook", default=None, help="send ALARMS (critical problems) to this Slack/Discord/Teams webhook URL")
     ap.add_argument("--gate-spelling", action="store_true", help="also put spelling fixes through the safety gate")
+    ap.add_argument("--ai", action="store_true", help="slim: also ask an AI (Ponytail rules) for shorter code - every answer is proven or tested")
+    ap.add_argument("--ai-limit", type=int, default=20, help="slim --ai: at most this many functions are sent to the AI")
     a = ap.parse_args()
     args = a.root or []
     if a.command in ("approve", "reject"):
@@ -253,6 +257,8 @@ def main():
         return run("proposals.py", "apply", *(["--root", root] if args else []))
     if a.command == "advise":
         return run("advisor.py", root)
+    if a.command == "slim":
+        return run("slim.py", root, *(["--ai", "--ai-limit", str(a.ai_limit)] if a.ai else []))
     if a.command == "size":
         return run("bundlesize.py", root, *(["--build"] if a.build else []), *(["--online"] if a.online else []))
     if a.command == "leaks":

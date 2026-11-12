@@ -150,6 +150,41 @@ def apply_approved(root):
             ok_units.append(pid)
         except ValueError as e:
             d[pid]["status"], d[pid]["held_why"] = "held", str(e) + " - run advise again"
+    # shorter-code proposals (slim) carry a PROOF: each one must still be the same program, checked again now
+    pre_passed = []
+    slim_units = [pid for pid in ok_units if d[pid].get("verify") == "slim"]
+    if slim_units:
+        from gate import proven_same_program
+        for pid in slim_units:
+            f = d[pid]["file"]
+            if f in proven_same_program(root, [(f, originals[f], build([pid])[f])]):
+                pre_passed.append(pid)
+            else:
+                d[pid]["status"], d[pid]["held_why"] = "held", "the proof that it is the same program did not hold any more"
+        for f in sorted({d[pid]["file"] for pid in pre_passed}):      # several in one file: the whole file is proven too
+            mine = [pid for pid in pre_passed if d[pid]["file"] == f]
+            if len(mine) > 1 and f not in proven_same_program(root, [(f, originals[f], build(mine)[f])]):
+                for pid in mine:
+                    d[pid]["status"], d[pid]["held_why"] = "held", "together with the other shorter versions in this file the proof did not hold"
+                pre_passed = [pid for pid in pre_passed if pid not in mine]
+        if pre_passed:
+            print("Proved identical (the same program, written shorter): %s" % ", ".join(sorted({d[pid]["file"] for pid in pre_passed})))
+        ok_units = [pid for pid in ok_units if pid not in slim_units]
+    # AI answers that were TESTED (not proven): the side-by-side test runs again now, on the files as they are
+    ai_units = [pid for pid in ok_units if d[pid].get("verify") == "slim-ai"]
+    if ai_units:
+        import slim_ai
+        for pid in ai_units:
+            ok, why = slim_ai.retest(root, d[pid])
+            if not ok:
+                d[pid]["status"], d[pid]["held_why"] = "held", "the side-by-side test did not pass again: " + why
+        ok_units = [pid for pid in ok_units if d[pid]["status"] != "held"]
+        if not slim_ai.other_proof_exists(root):
+            tested = [pid for pid in ai_units if d[pid]["status"] != "held"]
+            if tested:
+                print("Tested again side by side (no pages, build or tests of its own to check as well): %s" % ", ".join(tested))
+            pre_passed += tested
+            ok_units = [pid for pid in ok_units if pid not in tested]
     print("Safety gate: proving the product behaves exactly the same after the approved edits ...")
 
     def apply_units(copy, subset):
@@ -158,6 +193,7 @@ def apply_approved(root):
                 fh.write(t)
 
     passed, failed, notes = guard_units(root, ok_units, apply_units) if ok_units else ([], [], [])
+    passed = list(pre_passed) + list(passed)
     for n in notes:
         print("   " + n)
     for pid, why in failed:

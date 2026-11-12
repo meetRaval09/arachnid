@@ -290,6 +290,9 @@ class Esbuild:
                             todo.append((Path(e.path), depth + 1))
                 except OSError:
                     pass
+        own = Path(__file__).resolve().parent          # an esbuild installed next to Arachnid itself (npm install esbuild)
+        if (own / "node_modules" / "esbuild" / "package.json").exists():
+            return own
         return None
 
     JS = r"""
@@ -312,15 +315,19 @@ process.stdout.write(JSON.stringify(out));
     MIN_JS = r"""
 const es = require(require.resolve('esbuild', { paths: [process.argv[1]] }));
 const items = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-const out = items.map(it => { try { return es.transformSync(it.code, { loader: it.loader, minify: true, legalComments: 'none', logLevel: 'silent' }).code; } catch (e) { return null; } });
+const keep = process.argv[2] === 'keep-names';
+const opts = keep ? { minifySyntax: true, minifyWhitespace: true } : { minify: true };
+const out = items.map(it => { try { return es.transformSync(it.code, Object.assign({ loader: it.loader, legalComments: 'none', logLevel: 'silent' }, opts)).code; } catch (e) { return null; } });
 process.stdout.write(JSON.stringify(out));
 """
 
-    def minified(self, items):
+    def minified(self, items, keep_names=False):
         """items: list of (id, code, loader) -> list of minified code (None = could not be read).
-        Minifying removes comments and spacing, so two texts with the same result are the SAME PROGRAM."""
+        Minifying removes comments and spacing, so two texts with the same result are the SAME PROGRAM.
+        keep_names=True: only syntax and spacing are minified (names stay as written) - used to prove that a
+        shorter way of writing the same thing really is the same program."""
         payload = json.dumps([{"id": i, "code": c, "loader": l} for i, c, l in items])
-        r = subprocess.run([self.node, "-e", self.MIN_JS, str(self.dir)], input=payload, capture_output=True,
+        r = subprocess.run([self.node, "-e", self.MIN_JS, str(self.dir)] + (["keep-names"] if keep_names else []), input=payload, capture_output=True,
                            text=True, encoding="utf-8", timeout=300)
         if r.returncode != 0:
             raise RuntimeError(r.stderr[-300:])

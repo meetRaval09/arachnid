@@ -276,7 +276,8 @@ def main():
             hits = [e for e in ents if e["file"].replace(chr(92), "/").endswith(f) and int(e.get("line") or 0) == line]
             caught += bool(hits)
             print("  %-6s %-14s %3d  %s" % ("FOUND" if hits else "MISSED", f, line, what))
-        noise = [e for e in scan(tmp / "clean")]
+        # shorter-code suggestions (slim) are not bug reports: they have their own brutal test (qa_slim_brutal.py)
+        noise = [e for e in scan(tmp / "clean") if e.get("tool") != "slim"]
         print("\nCLEAN TWIN (must stay completely quiet)")
         for e in noise:
             print("  FALSE ALARM  [%s] %s:%s %s" % (e["tool"], e["file"], e.get("line"), e["what"][:100]))
@@ -286,7 +287,7 @@ def main():
     finally:
         if keep.exists():
             shutil.rmtree(HERE / "reports", ignore_errors=True)
-            shutil.copytree(keep, HERE / "reports")
+            shutil.copytree(keep, HERE / "reports", dirs_exist_ok=True)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
