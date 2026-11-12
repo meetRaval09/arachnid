@@ -1,28 +1,77 @@
 # 🕷️ Arachnid
 
-**A spider that crawls your project, finds problems, and fixes the ones it can prove are harmless.**
+[![Tests](https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml/badge.svg)](https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml)
+[![Docker image](https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml/badge.svg)](https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml)
+[![MIT licence](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
 
-It never changes how your product looks or behaves, not even by one pixel. Anything it is not sure about is left
-alone and reported to you, and anything that would change your code waits for a person to approve it.
+**A spider that crawls your project, finds the bugs nothing else notices, and fixes only what it can PROVE is harmless.**
+
+It never changes how your product looks or behaves, not even by one pixel. Anything it cannot prove is held back and
+reported to you, and anything that changes your code waits for a person to approve it.
+
+## The proof, in numbers
+
+Every number below comes from a test you can run yourself (the command is in the last column). The brutal tests run
+again on every push, so if Arachnid ever gets worse, the badge above turns red.
+
+| What was tested | Result | Run it |
+|---|---|---|
+| A shop website with **38 bugs hidden** in its HTML, forms, scripts and styles | **38 / 38** found on the exact line · **0** findings on the same site with the bugs fixed | `python qa_html_brutal.py` |
+| A studio website with **30 hidden CSS bugs** | **30 / 30** found · **0** on the clean twin | `python qa_css_brutal.py` |
+| AI-style long code, plus **15 traps** that only *look* shorter | **22 / 22** shorter versions found · **0** traps touched · **0** behaviour differences in 447 side-by-side calls | `python qa_slim_brutal.py` |
+| **30 planted problems** and **20 correct look-alikes**, across languages | **30 / 30** found · **0** false complaints | `python qa_accuracy.py` |
+| A change that moves a picture by **one pixel** | caught - the fix is **not** applied | `python arachnid.py selftest` |
+| Six intentionally vulnerable training apps (OWASP NodeGoat, Juice Shop, DVNA, PyGoat, DVPWA, Vulpy) | **42 / 44** documented code holes found | see [Security](#security) |
+| Arachnid's shorter code applied to **7 real libraries** (click, boltons, more-itertools, sqlparse, cachetools, toolz, validator.js) | **~5,500** of their own tests: **exactly the same result** as before | see [Proof](#proof-what-arachnid-did-on-real-code) |
+| About **2,250 real web pages** and **2,900 real CSS files** (Google Chrome and MDN samples, installed packages) | every new HTML/CSS decision was a **real bug** · **0** false alarms | see [Proof](#proof-what-arachnid-did-on-real-code) |
+
+![Brutal tests: bugs hidden vs bugs found](docs/charts/brutal-tests.png)
+
+The dots sit exactly on top of the bars: every hidden bug was found. On the bug-free twin of each test project,
+Arachnid reported **zero** findings.
+
+### What is a "brutal test"?
+
+Think of it like a teacher hiding mistakes in an exam paper, then checking whether the student finds every one,
+**and** giving the student a perfect paper to see whether they wrongly mark anything as a mistake.
+
+Each brutal test is a small, made-up project with bugs hidden on purpose, so deep that the page still opens and
+nothing shows an error. Every brutal test also has a **clean twin**: the same project with every bug fixed, plus
+correct code that *looks* like the bugs. A test passes only if Arachnid finds **every** bug on its exact line,
+and finds **nothing at all** on the clean twin.
+
+| Test | The made-up project | A few of the hidden bugs |
+|---|---|---|
+| **HTML** (38 bugs) | a small shop: 3 pages, 2 scripts, 1 style sheet | a comment written `-- >` instead of `-->`, so the whole product list silently disappears · two radio buttons named `shipping` and `Shipping`, so both can be picked · `499 + "1"` giving `"4991"` instead of `500` · a form sent with `method="POTS"` · a picture loaded from `C:\Users\...` that works only on the developer's own laptop |
+| **CSS** (30 bugs) | a studio site: 1 page, 4 style sheets | `var(--brand-colour)` when the variable is spelled `--brand-color` · `@media (max-width: 768)` with no `px`, so the phone layout never turns on · `calc(100%-2rem)` with no spaces, which browsers ignore · `text-align: centre` · white text on a white background · a banner wider than a phone screen |
+| **Shorter code** (22 + 15 traps) | a small project written the long, AI-style way in Python, JavaScript and TypeScript | 22 places that really can be shorter, and 15 **traps** that only *look* like they can - for example, a loop of decimal numbers, which `sum()` would add slightly differently. Arachnid must shorten the 22, leave all 15 traps alone, and the old and new code must give exactly the same answers when run side by side |
+| **Accuracy** (30 + 20 look-alikes) | small files in several languages | 30 planted problems that must be found, and 20 pieces of correct code that look wrong, where Arachnid must stay quiet |
+
+![Vulnerable training apps: 44 holes documented, 42 found](docs/charts/security.png)
+
+## How it decides
+
+1. **Scan.** About 25 checks read every file.
+2. **Sort.** Each finding becomes 🔴 an alarm (clear danger), 🟠 a decision (a real bug, you choose the fix) or 💡 an idea.
+3. **Safety gate.** A fix is made on a copy first. It is applied only if it is provably the same program, or if the
+   pages look identical in a real browser (desktop and phone, every pixel) or the build and the project's own tests
+   give the same result. Anything else is held back for you. No switch turns the gate off, and it fails closed.
+4. **Undo.** Every applied change is backed up and can be undone byte for byte.
 
 ## Why use Arachnid
 
-- **Fixes you can trust.** Every fix is first made on a copy of your project. Arachnid then opens the before and
-  after versions in a real browser (at desktop and phone size) or runs your tests. If anything differs, even one
-  pixel, the fix is not applied. Other tools check that the problem is gone. Arachnid also checks that your product
-  is unchanged.
-- **No guessing.** When there is nothing to run that could prove a fix is safe, Arachnid holds the fix back for you.
-- **Nothing is lost.** Every change is backed up and can be undone byte for byte. Suggestions that change code wait
-  for a person to approve them.
-- **It catches what other tools skip.** Payments that never check the amount is above 0, wording mistakes, brand spellings, duplicate pictures, folders nested by
-  accident, pages pointing to missing files, heavy pages, and memory that keeps growing, measured in a real browser.
-- **Your code stays yours.** It runs on your computer or your own GitHub runner. No outside AI, no cloud upload. Free
-  and open source (MIT).
-- **The right people hear about it.** Alarms go to the owner of that folder and to the person who changed the line.
-  Old problems never block someone else's pull request, and each alarm is sent once.
-- **Ready in minutes.** A setup page connects your repository, teams and email, and opens one pull request with
-  everything needed. Nothing reaches `main` until you merge it.
-- **You can watch it work.** The live crawl shows the spider walking to each file as it is read.
+- **Fixes you can trust.** Other tools check that the problem is gone. Arachnid also checks that your product is
+  unchanged, down to the pixel, and holds back anything it cannot prove.
+- **It catches what other tools skip.** Code that runs without a single error and still does the wrong thing: a
+  checkout that accepts a total of ₹0, `499 + input.value` giving `"4991"`, a `<div>` the browser quietly moves out
+  of a paragraph, a CSS variable that does not exist, a page wider than a phone.
+- **Nothing is lost.** Every change is backed up and can be undone byte for byte.
+- **Your code stays yours.** It runs on your computer or your own GitHub runner. Nothing is uploaded. The only
+  outside calls are optional: a library-version lookup, and the AI mode (`slim --ai`), which sends code to the AI
+  only when you switch it on with your own key. Free and open source (MIT).
+- **The right people hear about it.** Alarms go to the owner of that folder and to the person who changed the line,
+  once. Old problems never block someone else's pull request.
+- **Ready in minutes.** A setup page opens one pull request with everything needed. Nothing reaches `main` until you merge it.
 
 ![The Arachnid dashboard](docs/screenshots/dashboard.png)
 
@@ -32,11 +81,12 @@ alone and reported to you, and anything that would change your code waits for a 
 
 | | |
 |---|---|
-| **Finds** | broken code, hidden logic bugs that run without any error, security holes (see below), unused imports and variables, typos, wrong brand spellings (`Github` → `GitHub`), grammar that breaks meaning ("their is"), duplicate files, nested folders, missing images, scripts and styles, payments that never check the amount is above 0, leaked secrets in URLs, switched-off security checks, insecure `http://` scripts, requests without a timeout, heavy libraries, page weight, memory growth |
-| **Fixes** | only what passes the **safety gate**: your project is copied, the change is made on the copy, and a real browser (or your own tests) compares before and after. Any difference means the change is held back. |
-| **Asks** | before anything that is a judgement call. Lighter or faster code is offered as a suggestion that waits for your approval. |
-| **Reports** | everything in one standard report, sorted as 🔴 alarms → 🟠 decisions → ✅ handled → 💡 ideas. Each item goes to the right person: the owner of that folder and whoever changed it. |
-| **Undoes** | every change, byte for byte. |
+| **Finds** | hidden logic bugs, broken code, security holes, HTML the browser quietly rewrites, CSS the browser silently ignores, layout problems measured in a real browser, typos and brand spellings, duplicate and missing files, payments that never check the amount, leaked secrets, heavy pages, memory growth |
+| **Fixes** | only what passes the **safety gate** (above) |
+| **Shortens** | long, AI-style code into shorter code that is **proven** to be the same program ([slim](#shorter-code-the-same-product-slim)) |
+| **Asks** | before anything that is a judgement call: suggestions wait for your approval |
+| **Reports** | 🔴 alarms → 🟠 decisions → ✅ handled → 💡 ideas, each to the right person |
+| **Undoes** | every change, byte for byte |
 
 It works on any language. Python, JavaScript/TypeScript, HTML/CSS, JSON and Markdown get the deepest checks, and the
 dependency files of npm, pip, Maven, Gradle, Go, Cargo, Composer, Bundler, NuGet, pub and SwiftPM are understood too.
@@ -70,14 +120,6 @@ MEASURES the layout: a page wider than the screen (with the element that sticks 
 (Vite, React, ...) are built in a temporary copy first. Errors on pages that need your backend, or a permission the
 test browser does not give (location, camera), are marked as ideas instead of decisions. To switch it off: `"pagecheck": false` in
 `arachnid.config.json`, or `ARACHNID_NO_BROWSER=1`.
-
-**Brutal test:** a shop website with 38 bugs hidden deep in its HTML, forms, scripts and styles - Arachnid finds
-all 38 on their exact lines, and reports nothing at all on the same site with the bugs fixed.
-The **brutal CSS test** does the same with 30 CSS bugs (from `var(--brand-colour)` to a sticky header trapped by
-`overflow: hidden`): 30 of 30 found, nothing on the clean twin.
-
-Tested on about 2,200 real pages from Google Chrome's and MDN's sample sites: every new HTML finding was a real
-bug (for example a `<ul>` inside a `<p>` and `<a>` typed where `</a>` was meant), with **zero** false alarms.
 
 ### Security
 
@@ -129,9 +171,84 @@ function run on hundreds of inputs and must give identical results, result types
 to the inputs - with at least 90% of the lines of both versions actually run. Everything else is thrown away. Set
 `ARACHNID_AI_CMD` (any AI command line, for example `claude -p`) or `ANTHROPIC_API_KEY`; the key is never stored.
 
-**Tested on real libraries:** every proven shorter version Arachnid found was applied to six popular Python libraries
-(click, boltons, more-itertools, sqlparse, cachetools, toolz - 186 edits, about 280 lines shorter) and to
-validator.js; each library's own test suite - about 5,500 tests - gives exactly the same result as before.
+Measured on real libraries: see [Proof](#proof-what-arachnid-did-on-real-code).
+
+## Proof: what Arachnid did on real code
+
+Planted tests show a tool works on examples. These show it works on code nobody wrote for it.
+
+### 1. Shorter code, on real libraries, with their own tests as the judge
+
+Every proven shorter version Arachnid found was applied, without picking. Then each library's **own** test suite,
+written by its own authors, was run before and after.
+
+| Library | Edits Arachnid made | Lines shorter | Its own tests, before → after |
+|---|---:|---:|---|
+| [click](https://github.com/pallets/click) | 31 | 60 | 2,623 pass → **2,623 pass** |
+| [boltons](https://github.com/mahmoud/boltons) | 103 | 150 | 621 pass → **621 pass** |
+| [more-itertools](https://github.com/more-itertools/more-itertools) | 10 | 10 | 771 pass → **771 pass** |
+| [sqlparse](https://github.com/andialbrecht/sqlparse) | 11 | 21 | 537 pass → **537 pass** |
+| [cachetools](https://github.com/tkem/cachetools) | 12 | 12 | 416 pass → **416 pass** |
+| [toolz](https://github.com/pytoolz/toolz) | 19 | 29 | 191 pass, 1 fail → **191 pass, 1 fail** (the same test, failing before Arachnid touched anything) |
+| [validator.js](https://github.com/validatorjs/validator.js) | 10 | 10 | 323 pass → **323 pass** |
+
+![Each library's own tests passing, before and after Arachnid](docs/charts/library-tests.png)
+
+![Lines of code removed in each library](docs/charts/lines-removed.png)
+
+What a change looks like (validator.js, `isIMEI`):
+
+```diff
+-  if (chk !== parseInt(str.substring(14, 15), 10)) {
+-    return false;
+-  }
+-  return true;
++  return chk === parseInt(str.substring(14, 15), 10);
+```
+
+### 2. Real bugs found in real websites
+
+Arachnid read about 2,250 real pages (Google Chrome's and MDN's official sample sites) and about 2,900 real CSS files.
+Every new HTML and CSS decision it raised was a real bug - for example:
+
+| Where | What Arachnid found | Why it matters |
+|---|---|---|
+| Google Chrome samples, `media/controlslist.html` | `<a>` typed where `</a>` was meant | the browser nests the next link inside the first one |
+| Google Chrome samples | a `<ul>`, a `<fieldset>` and a `<pre>` inside a `<p>` | the browser ends the paragraph early, so its styles stop applying |
+| Google Chrome samples, `web-bluetooth/_includes/value-to-usb-vendor-name.html` | `für` saved as `fÃ¼r` | visitors see garbled text |
+| Google Chrome samples, `css-custom-properties` | `var(--cell-color)` with no `--cell-color` anywhere | the colour silently disappears |
+| MDN samples, `canvas/chroma-keying` | `<video ... />` | in HTML the `/` is ignored, so the video stays open and swallows what follows |
+| a popular beginner-projects repository | a stylesheet link to `style.css` when the file is `dark-style.css` | the page loads with no styles |
+| real CSS in installed packages | `display: hidden`, `0.8reml` | the browser ignores the whole line |
+
+Earlier rounds found real bugs in matplotlib, scikit-learn, mermaid and Chrome's own developer tools.
+
+### 3. An AI that is never trusted
+
+The AI mode (`slim --ai`) is tested with scripted answers, some right and some subtly wrong. Each wrong one is
+thrown away, with the input that proves it:
+
+| The AI's shorter version | Thrown away because |
+|---|---|
+| `return sum(prices) / len(prices) if prices else 0` | for `[0.1, 0.2, 0.3]` it gives `0.19999999999999998` instead of `0.20000000000000004` (`sum()` adds decimals differently) |
+| `return (code or "NONE").upper().strip()` | for `""` it gives `'NONE'` instead of `''` |
+| `return list(set(values))` | for `[0, -1, 5]` it gives `[0, 5, -1]` instead of `[-1, 0, 5]` |
+| a version that drops a rare discount code | the side-by-side test never reached that branch, so there is no evidence it is the same - rejected |
+
+An AI answer is kept only if it is proven to be the same program, or if old and new code give the same results,
+errors and output side by side and both versions had at least 90% of their lines run. Everything else is thrown away.
+
+### 4. What testing caught in Arachnid itself
+
+A tool that claims "the same product" has to be tested harder than the code it checks. These were found by the tests
+above and fixed before release - and each one is now a permanent test case:
+
+- **A list built inside `with suppress(...)`.** One shortening rule turned it into a one-line list. When the error
+  was swallowed halfway, the list no longer existed. The more-itertools test suite caught it.
+- **`sum()` is not the same on every Python.** Since Python 3.12 it adds decimals more precisely, so a test on 3.11
+  cannot speak for 3.12. The AI mode now refuses such answers on older Python and says which Python every test used.
+- **`//` inside `url(https://...)`.** The CSS syntax check took it for a comment and raised a false alarm.
+- **Brand-new CSS.** `display: grid-lanes` (the new masonry layout) and `@function` were flagged until they were taught.
 
 ## Get started
 
@@ -288,7 +405,7 @@ Add [`github/arachnid.yml`](github/arachnid.yml) to your project as `.github/wor
 ## Tests
 
 ```bash
-python arachnid.py selftest   # the whole chain: repair, safety gate, alarms, approvals, undo
+python arachnid.py selftest   # the whole chain: repair, safety gate (incl. the one-pixel test), alarms, approvals, undo
 python qa_accuracy.py         # 30 planted problems must be found, 20 clean look-alikes must stay quiet
 python qa_html_brutal.py      # a shop website with 38 deeply hidden bugs: all must be found, its clean twin must get 0 findings
 python qa_css_brutal.py       # a studio website with 30 deeply hidden CSS bugs: all must be found, its clean twin must get 0 findings
@@ -297,8 +414,8 @@ python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files,
 ```
 
 The same tests run on every push (`.github/workflows/tests.yml`, a copy is in `github/tests.yml`).
-The Docker image is built, tested (the same self-test and accuracy test, inside the image) and published by
-`.github/workflows/docker.yml` (a copy is in `github/docker.yml`).
+The Docker image is built, tested inside the image and published by `.github/workflows/docker.yml` (a copy is in
+`github/docker.yml`).
 
 ## Learn more
 
