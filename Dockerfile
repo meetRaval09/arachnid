@@ -17,11 +17,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ARACHNID_IN_DOCKER=1 \
     HOME=/tmp
 
-# Python, git, tini (lets Ctrl+C and "docker stop" end Arachnid cleanly) and Node (only to run esbuild)
+# Python, git, tini (lets Ctrl+C and "docker stop" end Arachnid cleanly) and Node (only to run esbuild, and TypeScript for the TypeScript test)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-venv git ca-certificates tini nodejs npm \
  && mkdir -p /opt/esbuild && cd /opt/esbuild \
- && npm install --no-audit --no-fund --omit=dev "esbuild@${ESBUILD_VERSION}" \
+ && npm install --no-audit --no-fund --omit=dev "esbuild@${ESBUILD_VERSION}" "typescript@5.8.3" \
  && apt-get purge -y npm && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* /tmp/.npm \
  && git config --system safe.directory '*'

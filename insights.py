@@ -333,8 +333,45 @@ def heavy_files(proj):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+def _package_entries(proj):
+    """Files a package hands to the outside world (package.json main / module / types / exports, and their src/ twins):
+    what they export is the package's public face, meant for OTHER projects to call."""
+    entries = set()
+
+    def walk(v, out):
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, dict):
+            for x in v.values():
+                walk(x, out)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, out)
+    for rel, text in proj.texts.items():
+        if Path(rel).name != "package.json" or "node_modules/" in rel:
+            continue
+        try:
+            data = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        base = str(Path(rel).parent).replace("\\", "/")
+        base = "" if base == "." else base + "/"
+        found = []
+        for k in ("main", "module", "browser", "types", "typings", "source", "exports"):
+            walk(data.get(k), found)
+        for f in found:
+            f = f.lstrip("./")
+            stem = re.sub(r"\.(d\.ts|[cm]?[jt]sx?)$", "", f)
+            for cand in (stem, re.sub(r"^(dist|build|lib|out|esm|cjs)/", "src/", stem)):
+                entries.add(base + cand)
+    return entries
+
+
 def dead_code(proj):
     out = []
+    entries = _package_entries(proj)
     for rel, text in proj.texts.items():
         x = ext_of(Path(rel))
         fam = FAMILY.get(x)
@@ -375,6 +412,8 @@ def dead_code(proj):
                 seen.add(name)
                 exported = bool(re.search(r"\bexport\b|\bpublic\b|\bpub\b|module\.exports|\bopen\b", defline)) or \
                     (fam == "go" and name[0].isupper()) or (fam == "py" and not name.startswith("_") and not defline.startswith((" ", "\t")))
+                if exported and fam == "js" and re.sub(r"\.[cm]?[jt]sx?$", "", rel) in entries:
+                    continue                                       # the package's public API, for other projects
                 private = bool(re.search(r"\bprivate\b|\bstatic\b", defline)) or (fam == "py" and name.startswith("_")) or \
                     (fam == "go" and name[0].islower()) or (fam in ("js", "rust") and not exported)
                 conf = "low" if exported else ("high" if private else "medium")

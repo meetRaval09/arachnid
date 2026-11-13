@@ -94,7 +94,7 @@ ssd fps dpi ppi px rem vh vw ms rgb rgba hsl hsla hex wifi bluetooth iot uart sp
 backend frontend fullstack webapp website websites webpage homepage login logout signup signin username
 usernames email emails admin admins metadata timestamp timestamps filename filenames pathname dirname hostname
 runtime codebase boilerplate refactor refactored refactoring deprecated polyfill polyfills transpile bundler
-minify minified sourcemap hotfix rollback uptime workflow workflows roadmap changelog autocomplete autoplay
+minify minified sourcemap sourcemaps vitest jest mocha jasmine nodemon tsc tsconfig nocheck tsbuildinfo hotfix rollback uptime workflow workflows roadmap changelog autocomplete autoplay
 autofocus onclick onload keydown keyup keypress mousemove mouseenter mouseleave mousedown mouseup pointerdown
 pointerup pointermove touchstart touchend touchmove scrollbar fullscreen offscreen canvas webcam gamepad shader
 shaders uniform uniforms vertex fragment raycast raycaster quaternion vec2 vec3 vec4 mat4 bloom gizmo skybox

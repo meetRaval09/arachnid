@@ -25,8 +25,10 @@ it is almost never wrong: if a case could reasonably be intended, it is left alo
 import argparse
 import ast
 import json
+import os
 import posixpath
 import re
+import subprocess
 import sys
 import urllib.parse
 from html.parser import HTMLParser
@@ -201,6 +203,26 @@ RULES = {
     "js-console-log-left": ("idea", "debugging messages left in page code",
                             "console.log lines written while hunting a bug show up in every visitor's console",
                             "remove the ones that were only for debugging"),
+    "ts-type-error": ("decision", "a TypeScript type error",
+                      "TypeScript's own checker (tsc) says this line cannot work as written - the kind of bug that only shows up when it runs",
+                      "fix the line so the types match (the message says what TypeScript expected)"),
+    "ts-ignore-no-reason": ("idea", "a type error switched off without a reason",
+                            "@ts-ignore hides whatever error is on the next line - today's and every future one - and nobody knows why it is there",
+                            "fix the error, or use `// @ts-expect-error <why>` so the reason is written down and TypeScript tells you once it is fixed"),
+    "ts-nocheck": ("idea", "type checking switched off for a whole file",
+                   "@ts-nocheck turns TypeScript off for every line of this file, so its bugs are never caught",
+                   "remove it and fix the errors it was hiding, one by one"),
+    "test-only-left": ("decision", "a test run narrowed to one test",
+                       "`.only` (or fit / fdescribe) was left in after debugging a test: the test runner now runs ONLY this one and silently "
+                       "skips every other test in the file - the run still looks green",
+                       "remove `.only` (write `it(` instead of `it.only(`)"),
+    "node-inspect-left": ("decision", "the Node.js debugger switched on for the real server",
+                          "--inspect opens a debugging port: anyone who can reach it can look inside the running server and run code in it. "
+                          "--inspect-brk also freezes the app on its first line until a debugger connects",
+                          "remove --inspect from this start command; keep it in a separate `debug` script you run on your own computer"),
+    "sourcemap-public": ("idea", "your original source code is published with the site",
+                         "this build setting puts source maps on the live website, so anyone can read your original code, comments included",
+                         "turn them off for the live build, or use `hidden` maps that you upload to your error tracker only"),
     # ---------------------------------------------------------------- HTML
     "html-duplicate-id": ("decision", "the same id twice on one page",
                           "an id must be unique; scripts and labels only ever find the first element", "give each element its own id"),
@@ -1239,6 +1261,108 @@ def _check_js(rel, text):
     return out
 
 
+TS_SKIP_CODES = {"TS2307", "TS2688", "TS7016", "TS2792", "TS2875", "TS1259", "TS1479", "TS2580", "TS2582", "TS2591", "TS2593", "TS2867", "TS2868"}   # missing packages / setup, not code bugs
+TSC_LINE = re.compile(r"^(?P<file>[^\s(][^(]*?)\((?P<line>\d+),(?P<col>\d+)\): error (?P<code>TS\d+): (?P<msg>.*)$")
+INSPECT = re.compile(r"--inspect(?:-brk|-wait)?(?:=(?P<addr>[^\s\"'&;|]+))?")
+FOCUS = re.compile(r"(?<![\w$.])(?:(?:it|test|describe|context|suite|specify)\.only|fit|fdescribe|fcontext)\s*\(")
+TEST_NAME = re.compile(r"(?i)\.(test|spec|e2e|cy)\.[cm]?[jt]sx?$|(^|/)(tests?|__tests__|spec|specs|e2e|cypress)/")
+
+
+def _find_tsc(root, folder):
+    """The project's OWN TypeScript (its version, its rules) - or one named in ARACHNID_TSC (used by the tests)."""
+    d = folder
+    while True:
+        for name in (("tsc.cmd", "tsc") if os.name == "nt" else ("tsc",)):
+            c = d / "node_modules" / ".bin" / name
+            if c.exists():
+                return str(c)
+        if d == root or d.parent == d:
+            break
+        d = d.parent
+    env = os.environ.get("ARACHNID_TSC")
+    return env if env and Path(env).exists() else None
+
+
+def ts_project_checks(root, texts, all_files):
+    """Project-level TypeScript and test-runner checks: real type errors from the project's own `tsc`, `.only` left in
+    tests, and the Node.js debugger left in start commands. All are reported; nothing is changed (tsc runs with --noEmit
+    and writes no build-info file)."""
+    out = []
+    root = Path(root)
+    configs = sorted(r for r in all_files if posixpath.basename(r) == "tsconfig.json" and "node_modules/" not in r)[:6]
+    seen = set()
+    for cfg in configs:
+        folder = root / posixpath.dirname(cfg) if posixpath.dirname(cfg) else root
+        tsc = _find_tsc(root, folder)
+        if not tsc or os.environ.get("ARACHNID_NO_TSC"):
+            continue
+        cmd = [tsc, "--noEmit", "--incremental", "false", "--composite", "false", "--pretty", "false", "-p", str(folder / "tsconfig.json")]
+        try:
+            r = subprocess.run(cmd, cwd=str(folder), capture_output=True, text=True, timeout=300,
+                               shell=(os.name == "nt" and tsc.lower().endswith(".cmd")))
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        count = 0
+        for ln in (r.stdout + "\n" + r.stderr).splitlines():
+            m = TSC_LINE.match(ln.strip())
+            if not m or m.group("code") in TS_SKIP_CODES or m.group("code").startswith(("TS5", "TS6", "TS18003")):
+                continue
+            path = (folder / m.group("file")).resolve()
+            try:
+                rel = path.relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue
+            if "node_modules/" in rel or rel.endswith(".d.ts") or (rel, m.group("line"), m.group("code")) in seen:
+                continue
+            seen.add((rel, m.group("line"), m.group("code")))
+            count += 1
+            if count <= 60:
+                add(out, rel, int(m.group("line")), "ts-type-error", "%s: %s" % (m.group("code"), m.group("msg")[:140]))
+    for rel, text in texts.items():
+        if not rel.lower().endswith((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")) or \
+                not (TEST_NAME.search(rel) or TEST_PATH.search(rel)) or "node_modules/" in rel:
+            continue
+        code, _ = js_lex(text)
+        for m in FOCUS.finditer(code):
+            add(out, rel, _line(text, m.start()), "test-only-left", "`%s`" % code[m.start():m.end()].rstrip("( "))
+
+    def inspect_in(rel, line, cmdtext):
+        m = INSPECT.search(cmdtext)
+        if m:
+            addr = m.group("addr") or ""
+            where = " - open to the whole network" if addr.startswith(("0.0.0.0", "[::]", "::")) else ""
+            add(out, rel, line, "node-inspect-left", "`%s`%s" % (m.group(0), where))
+    for rel, text in texts.items():
+        if posixpath.basename(rel) != "package.json" or "node_modules/" in rel:
+            continue
+        try:
+            scripts = json.loads(text).get("scripts") or {}
+        except (ValueError, AttributeError):
+            continue
+        for name, cmdtext in scripts.items():
+            if not isinstance(cmdtext, str) or re.search(r"(?i)debug|inspect|dev|watch|test|profil", name):
+                continue                                # a script made for debugging on your own computer
+            pos = text.find('"%s"' % name)
+            inspect_in(rel, _line(text, max(pos, 0)), cmdtext)
+    for rel in all_files:
+        base = posixpath.basename(rel).lower()
+        if "node_modules/" in rel or not (base.startswith("dockerfile") or base.endswith(".dockerfile") or base == "procfile" or
+                                          re.match(r"(docker-)?compose[\w.-]*\.ya?ml$", base)):
+            continue
+        if "debug" in base or ".dev" in base or "-dev" in base:
+            continue
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for i, ln in enumerate(text.split("\n"), 1):
+            s = ln.strip()
+            if s.startswith("#") or not re.search(r"\bnode\b|NODE_OPTIONS|nodemon|ts-node|\btsx\b", s):
+                continue
+            inspect_in(rel, i, s)
+    return out
+
+
 TEST_FILE = re.compile(r"(?i)(^|/)(tests?|__tests__|spec|e2e|cypress|playwright|stories|__mocks__)(/|$)|[._-](test|spec|stories)\.[jt]sx?$")
 LEFTOVER_MSG = re.compile(r"(?i)^\s*(?:here|here\s*\d+|(?:i'?m |got |made it |we'?re )?here!*|test(?:ing)?\s*\d*|asdf\w*|x{2,}|a{3,}|"
                           r"debug\s*\d*|check(?:point)?\s*\d*|it works|works|working|reached|inside|called|yay|wtf|"
@@ -1252,6 +1376,29 @@ def _debug_leftovers(rel, text, code, string_at, out):
     low = text.lower()
     if len(text) > 300000 or "emscripten" in low or re.search(r"@generated|auto-?generated|do not edit", low[:3000]):
         return                                      # written by a compiler, not by a person
+    low_rel = rel.lower()
+    demo = bool(re.search(r"(^|/)(playground|fixtures?|__fixtures__|examples?|samples?|demos?)(/|$)", low_rel))
+    if low_rel.endswith((".ts", ".tsx", ".mts", ".cts")):
+        for m in re.finditer(r"(?m)(?://|/\*+)\s*@ts-ignore\b([^\n]*)", text):
+            why = re.sub(r"\*/.*$|[\s:.,;\-*]+", " ", m.group(1)).strip()
+            if len(why) < 4:
+                add(out, rel, _line(text, m.start()), "ts-ignore-no-reason", "`@ts-ignore` with no reason")
+        m = re.search(r"(?m)^\s*(?://|/\*+)\s*@ts-nocheck\b", "\n".join(text.split("\n")[:15]))
+        if m and not demo:
+            add(out, rel, _line(text, m.start()), "ts-nocheck", "`@ts-nocheck` at the top of the file")
+    base = "" if demo else posixpath.basename(low_rel)       # a demo / test fixture is not the live site
+    if re.match(r"vite\.config\.", base):
+        m = re.search(r"\bbuild\s*:\s*\{[^{}]*?\bsourcemap\s*:\s*(true|['\"]inline['\"])", text)
+        if m:
+            add(out, rel, _line(text, m.start(1)), "sourcemap-public", "`build: { sourcemap: %s }`" % m.group(1))
+    elif re.match(r"next\.config\.", base):
+        m = re.search(r"\bproductionBrowserSourceMaps\s*:\s*true", text)
+        if m:
+            add(out, rel, _line(text, m.start()), "sourcemap-public", "`productionBrowserSourceMaps: true`")
+    elif re.match(r"webpack\.", base) and ("prod" in base or re.search(r"\bmode\s*:\s*['\"]production['\"]", text)):
+        m = re.search(r"\bdevtool\s*:\s*['\"]((?:inline-|eval-|cheap-|module-)*source-map)['\"]", text)
+        if m:
+            add(out, rel, _line(text, m.start()), "sourcemap-public", "`devtool: '%s'` in the production build" % m.group(1))
     # debugger; - only the statement (the word cannot be anything else outside strings, except a property / key)
     for m in re.finditer(r"(?<![.\w$])debugger\b(?!\s*[:(=.])", code):
         add(out, rel, _line(text, m.start()), "js-debugger-left", "`debugger` statement")
@@ -2554,6 +2701,10 @@ def check(root):
         except Exception as e:                      # one odd file must never stop the whole check
             print("  (skipped %s: %s)" % (rel, type(e).__name__))
             continue
+    try:
+        found += ts_project_checks(project.root, texts, project.files)
+    except Exception as e:
+        print("  (TypeScript / test-runner checks skipped: %s)" % type(e).__name__)
     try:
         found += check_project(texts, pages)
     except Exception:
