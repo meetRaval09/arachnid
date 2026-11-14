@@ -361,6 +361,43 @@ python arachnid.py undo                               # put the last fix back (r
 python arachnid.py selftest                           # prove the whole chain works on this computer
 ```
 
+## Use Arachnid from Claude (connector)
+
+`arachnid_mcp.py` turns Arachnid into a **Claude connector** (an MCP server): Claude can scan a project, explain what
+it found, show the code around each finding, and - only when you ask - approve, apply or undo fixes. The safety gate
+still decides every change. Plain Python, nothing to install.
+
+**Claude Desktop:** Settings → Developer → Edit Config, add this, then restart Claude:
+
+```json
+{
+  "mcpServers": {
+    "arachnid": {
+      "command": "python",
+      "args": ["C:\\path\\to\\arachnid\\arachnid_mcp.py"]
+    }
+  }
+}
+```
+
+**Claude Code:** `claude mcp add arachnid -- python /path/to/arachnid/arachnid_mcp.py`
+
+Then just ask: *"Scan C:\\projects\\shop with Arachnid and explain the alarms."*
+
+| Tool | What it does | Changes files? |
+|---|---|---|
+| `scan` | scan a folder and sort the results into alarms, decisions, handled, ideas | no |
+| `findings` | page through the results, filter by file or checker | no |
+| `code_context` | show the lines around a finding | no |
+| `slim` | find proven-identical shorter code (as proposals) | no |
+| `proposals` | list what waits for your yes | no |
+| `approve` / `reject` | record your answer for specific proposals | no |
+| `apply_approved` | apply approved proposals, each through the safety gate | yes, backed up |
+| `fix` | apply the safe fixes, each through the safety gate | yes, backed up |
+| `undo` | put the most recent fix back, byte for byte | yes |
+
+`python qa_mcp.py` tests the connector the way Claude uses it (22 checks, including "a scan changes nothing").
+
 ## The dashboard
 
 The dashboard (`arachnid dashboard`, or `python dashboard.py <project>`) is a control room in your browser. It runs only on your computer, at
@@ -425,6 +462,7 @@ python qa_js_brutal.py        # a shop's JavaScript with 14 debugging leftovers:
 python qa_py_brutal.py        # a Python shop with 15 debugging leftovers: all must be found, its clean twin must get 0 findings
 python qa_ts_brutal.py        # a TypeScript shop: 5 type errors + 9 leftovers must be found, its clean twin must get 0 findings
                               #   (needs TypeScript once: npm install --no-save typescript@5.8.3)
+python qa_mcp.py              # the Claude connector: handshake, tools, a scan changes nothing, clean channel (22 checks)
 python qa_slim_brutal.py      # shorter code: 22 proven shorter versions found, 15 traps untouched, old and new code behave identically, wrong AI answers stopped
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```

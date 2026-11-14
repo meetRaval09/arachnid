@@ -32,6 +32,8 @@ jobs:
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/tsc" typescript@5.8.3
           ARACHNID_TSC="$RUNNER_TEMP/tsc/node_modules/.bin/tsc" python qa_ts_brutal.py
+      - name: Claude connector test (MCP handshake, tools, scan changes nothing, clean channel)
+        run: python qa_mcp.py
       - name: Brutal slim test (shorter code, same product - traps untouched, wrong AI answers stopped)
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/esb" esbuild@0.25.0
