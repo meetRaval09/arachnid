@@ -391,6 +391,14 @@ def main():
     pairs = find_nested(root)
     if not pairs:
         print("\nNo folder contains a folder of the same name. Nothing to do.")
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)       # an empty report, so an older project's never lingers
+        Path(a.out).write_text(json.dumps({"checked_at": datetime.now().isoformat(timespec="seconds"), "root": str(root),
+                                           "plans": []}, indent=1), encoding="utf-8")
+        try:
+            import ledger
+            ledger.reset("clones")
+        except Exception:
+            pass
         return 0
     project = Project(root)
     plans, ready = [], []

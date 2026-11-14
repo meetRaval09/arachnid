@@ -463,6 +463,7 @@ python qa_py_brutal.py        # a Python shop with 15 debugging leftovers: all m
 python qa_ts_brutal.py        # a TypeScript shop: 5 type errors + 9 leftovers must be found, its clean twin must get 0 findings
                               #   (needs TypeScript once: npm install --no-save typescript@5.8.3)
 python qa_mcp.py              # the Claude connector: handshake, tools, a scan changes nothing, clean channel (22 checks)
+python qa_regressions.py      # every false alarm a real user reported stays fixed - and the real problem of the same shape is still found
 python qa_slim_brutal.py      # shorter code: 22 proven shorter versions found, 15 traps untouched, old and new code behave identically, wrong AI answers stopped
 python qa_stress.py           # 15 kinds of projects: unicode names, 1500 files, symlink loops, CRLF, ...
 ```

@@ -37,6 +37,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 SKIP = {"node_modules", ".git", "backups", "reports", "arachnid", "__pycache__", ".cache", "coverage"}
+# a packaged desktop app (Electron / NW.js build output) holds Chrome's own files - nobody downloads it as a web page
+PACKAGED_APP = re.compile(r"(?i)^((win|linux|mac|mas)(-(arm64|ia32|x64|universal))?-unpacked|.+\.app|.+-(win32|darwin|linux|mas)-(x64|ia32|arm64|universal))$")
+PACKAGED_MARKERS = {"LICENSES.chromium.html", "chrome_100_percent.pak", "resources.pak", "icudtl.dat"}
 TEXTLIKE = {"html", "htm", "js", "mjs", "cjs", "css", "json", "svg", "xml", "txt", "map", "ttf", "otf", "eot", "bmp", "wasm", "glb", "gltf", "obj"}
 CAT = {"js": "JavaScript", "mjs": "JavaScript", "cjs": "JavaScript", "css": "CSS", "html": "HTML", "htm": "HTML",
        "png": "images", "jpg": "images", "jpeg": "images", "gif": "images", "webp": "images", "avif": "images", "svg": "images", "ico": "images", "bmp": "images",
@@ -250,7 +253,10 @@ def analyse(site, online=False, budget_js=170, budget_total=1000):
     site = Path(site).resolve()
     pages = []
     for dp, dn, fn in __import__("os").walk(site):
-        dn[:] = [d for d in dn if d not in SKIP]
+        dn[:] = [d for d in dn if d not in SKIP and not PACKAGED_APP.match(d)]
+        if PACKAGED_MARKERS & set(fn):
+            dn[:] = []
+            continue                                    # inside a packaged desktop app, not a website
         for f in sorted(fn):
             if f.lower().endswith((".html", ".htm")):
                 pages.append(Path(dp) / f)

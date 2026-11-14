@@ -44,6 +44,17 @@ def run(tool, *args):
 def scan(root, webhook=None):
     steps = [("crawler.py", [root]), ("spellcheck.py", [root]), ("syntaxcheck.py", [root, "--fix", "--preview"]),
              ("logiccheck.py", [root]), ("moneycheck.py", [root]), ("bugcheck.py", [root]), ("seccheck.py", [root]), ("vulncheck.py", [root]), ("textcheck.py", [root]), ("terms.py", [root]), ("netcheck.py", [root]), ("bundlesize.py", [root]), ("advisor.py", [root]), ("slim.py", [root]), ("links.py", [root]), ("pagecheck.py", [root]), ("dedupe.py", [root]), ("clones.py", [root]), ("insights.py", [root])]
+    # start clean: a checker that finds nothing must never leave the PREVIOUS project's results behind
+    for old_report in list((HERE / "reports").glob("*-report.json")) + [HERE / "reports" / "ledger.jsonl"]:
+        try:
+            old_report.unlink()
+        except OSError:
+            pass
+    try:
+        (HERE / "reports").mkdir(exist_ok=True)
+        (HERE / "reports" / "ledger.jsonl").write_text("", encoding="utf-8")   # an empty notebook: "nothing found yet"
+    except OSError:
+        pass
     codes = {}
     for tool, args in steps:
         if not (HERE / tool).exists():

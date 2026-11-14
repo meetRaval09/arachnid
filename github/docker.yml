@@ -48,6 +48,7 @@ jobs:
           docker run --rm --entrypoint python arachnid:test /app/qa_py_brutal.py     # Python debugging leftovers
           docker run --rm -e ARACHNID_TSC=/opt/esbuild/node_modules/.bin/tsc --entrypoint python arachnid:test /app/qa_ts_brutal.py   # TypeScript
           docker run --rm --entrypoint python arachnid:test /app/qa_mcp.py   # Claude connector
+          docker run --rm --entrypoint python arachnid:test /app/qa_regressions.py   # reported false alarms stay fixed
           # a project shared from this computer, as a normal (not root) user - files must stay the user's
           mkdir -p /tmp/demo && printf '# Demo\n\nWe recieve the data.\n' > /tmp/demo/README.md
           docker run --rm --user "$(id -u):$(id -g)" -v /tmp/demo:/project -v demo-reports:/app/reports -v demo-backups:/app/backups arachnid:test fix || true

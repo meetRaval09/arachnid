@@ -57,7 +57,8 @@ IGNORE_HOSTS = ("www.w3.org", "w3.org", "schema.org", "purl.org", "xmlns.com", "
                 "www.apache.org", "gnu.org", "www.gnu.org", "mozilla.org", "developer.mozilla.org", "stackoverflow.com", "npmjs.com", "www.npmjs.com", "docs.python.org")
 URL_RX = re.compile(r"""(?:https?|wss?)://[^\s'"`<>()\[\]{}\\,;|^]+""")
 TEMPLATED = re.compile(r"\$\{|\{\{|%s|%d|<\?|\{[a-zA-Z_]+\}|\+\s*$")
-SECRET_Q = re.compile(r"""[?&](api[_-]?key|apikey|key|token|access[_-]?token|auth|secret|password|passwd|pwd|client[_-]?secret)=([^&\s'"`<>]{8,})""", re.I)
+# `&&key===x` is JavaScript (AND + a comparison), not an address: the & must not be part of && and the = not part of == / ===
+SECRET_Q = re.compile(r"""(?<![&|])[?&](?!&)(api[_-]?key|apikey|key|token|access[_-]?token|auth|secret|password|passwd|pwd|client[_-]?secret)=(?!=)([^&\s'"`<>=]{8,})""", re.I)
 CRED_URL = re.compile(r"""[a-z][a-z0-9+.\-]*://[^/\s:@'"`]+:([^/\s@'"`]{3,})@[^/\s'"`]+""", re.I)
 PLACEHOLDER = re.compile(r"your|example|xxx|\*{3}|<|>|\$|%|\{|changeme|placeholder|dummy|test|sample|token_here|\.\.\.", re.I)
 TLS_OFF = [
