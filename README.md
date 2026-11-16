@@ -27,6 +27,7 @@ again on every push, so if Arachnid ever gets worse, the badge above turns red.
 | Six intentionally vulnerable training apps (OWASP NodeGoat, Juice Shop, DVNA, PyGoat, DVPWA, Vulpy) | **42 / 44** documented code holes found | see [Security](#security) |
 | Arachnid's shorter code applied to **7 real libraries** (click, boltons, more-itertools, sqlparse, cachetools, toolz, validator.js) | **~5,500** of their own tests: **exactly the same result** as before | see [Proof](#proof-what-arachnid-did-on-real-code) |
 | About **2,250 real web pages** and **2,900 real CSS files** (Google Chrome and MDN samples, installed packages) | every new HTML/CSS decision was a **real bug** · **0** false alarms | see [Proof](#proof-what-arachnid-did-on-real-code) |
+| **Quarkus** (Red Hat's Java framework), its Dev UI JavaScript | a real bug found and fixed - **merged** by the Dev UI lead, ships in Quarkus 4.1 | [quarkusio/quarkus#58411](https://github.com/quarkusio/quarkus/pull/58411) |
 
 ![Brutal tests: bugs hidden vs bugs found](docs/charts/brutal-tests.png)
 
@@ -219,6 +220,11 @@ What a change looks like (validator.js, `isIMEI`):
 ```
 
 ### 2. Real bugs found in real websites
+
+**Merged upstream: [Quarkus #58411](https://github.com/quarkusio/quarkus/pull/58411).** Arachnid flagged a lead in
+Quarkus's Dev UI (Red Hat's Java framework). Reading the code around it found a real bug: after downloading the
+Kafka Streams topology, the message read " downloaded." with no file name, because the name was read before it was
+set. The fix was reviewed and merged by the Dev UI lead and ships in Quarkus 4.1.
 
 Arachnid read about 2,250 real pages (Google Chrome's and MDN's official sample sites) and about 2,900 real CSS files.
 Every new HTML and CSS decision it raised was a real bug - for example:
