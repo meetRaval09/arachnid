@@ -25,6 +25,12 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      text of a multi-line return html`...` read as code that can never run.
      Still found: a real missing file, a real space before a comma, "this is to much", "the the", a real unclosed code
      block, ",,", real code after a return - and Quarkus's two real broken translation files.
+  6. Field test (docsify, bootstrap, alpine, jotai, express, mkdocs): VALID files called broken - and some offered a
+     "repair" that would have damaged them: a tsconfig.json with comments (JSONC is allowed there), a Node script with a
+     top-level `return` and a variable named `package` (CommonJS), React JSX in a .js file, an EJS partial
+     (footer.html = "</body></html>") and a Jinja template.
+     Still found: a tsconfig.json that is really broken, a .js file that is really broken, a package.json with a
+     comment (npm refuses it) and a real page with a stray </div>.
 """
 import base64
 import json
@@ -209,6 +215,58 @@ def main():
         broken = {posixpath.basename(e.get("file") or "") for e in got if e.get("kind") == "syntax"}
         check("Quarkus's two broken translation files (a split text, a cut-off file) are still found",
               {"fr-CA.js", "fr-BE.js"} <= broken, str(broken))
+
+        print("Case: valid files that were called broken (field test)")
+        vf = tmp / "valid-files"
+        for d in (".vscode", "scripts", "src", "views", "theme"):
+            (vf / d).mkdir(parents=True)
+        (vf / "tsconfig.json").write_text('{\n  "compilerOptions": {\n    "target": "es2022", // modern browsers only\n'
+                                          '    /* strict type checks */\n    "strict": true,\n  },\n  "include": ["src/**/*"],\n}\n',
+                                          encoding="utf-8")
+        (vf / ".vscode" / "launch.json").write_text('{\n  // debug the server\n  "version": "0.2.0",\n  "configurations": [],\n}\n',
+                                                    encoding="utf-8")
+        (vf / "scripts" / "release.js").write_text(
+            "const fs = require('fs')\nlet version = process.argv[2]\n\nif (! version) {\n"
+            "    return console.log('pass a version number')\n}\n\n['core', 'ui'].forEach(package => {\n"
+            "    console.log(package, fs.existsSync(`./packages/${package}`))\n})\n", encoding="utf-8")
+        (vf / "src" / "button.js").write_text(
+            "import React from 'react'\n\nexport default function Button({ label, onClick }) {\n  return (\n"
+            "    <button className=\"btn\" onClick={onClick}>\n      {label}\n    </button>\n  )\n}\n", encoding="utf-8")
+        (vf / "views" / "footer.html").write_text("</body>\n</html>\n", encoding="utf-8")
+        (vf / "theme" / "base.html").write_text(
+            "<!DOCTYPE html>\n<html>\n<body{% if page %} class=\"page\"{% endif %}>\n  {% block content %}{% endblock %}\n"
+            "  <script>gtag('config', {{ config.gtag|tojson }});</script>\n"
+            "  <ul{% if nav %} class=\"nav\"{% endif %}>\n    {% for item in nav %}<li>{{ item }}</li>{% endfor %}\n  </ul>\n"
+            "</body>\n</html>\n", encoding="utf-8")
+        before = {q.relative_to(vf).as_posix(): q.read_bytes() for q in vf.rglob("*") if q.is_file()}
+        got = scan(vf)
+        syn = [(e.get("file"), e.get("line"), (e.get("what") or "")[:70]) for e in got if e.get("kind") == "syntax"]
+        def syn_in(name):
+            return [s for s in syn if (s[0] or "").endswith(name)]
+        check("tsconfig.json with comments and trailing commas (JSONC) is not broken", not syn_in("tsconfig.json"), str(syn_in("tsconfig.json")))
+        check(".vscode/launch.json with comments is not broken", not syn_in("launch.json"), str(syn_in("launch.json")))
+        check("a CommonJS script (top-level return, a variable named package) is not broken", not syn_in("release.js"), str(syn_in("release.js")))
+        check("React JSX in a .js file is not broken", not syn_in("button.js"), str(syn_in("button.js")))
+        check("an EJS partial ('</body></html>') is not broken", not syn_in("footer.html"), str(syn_in("footer.html")))
+        check("a Jinja template is not broken", not syn_in("base.html"), str(syn_in("base.html")))
+        check("nothing in these valid files was changed", before == {q.relative_to(vf).as_posix(): q.read_bytes() for q in vf.rglob("*") if q.is_file()})
+
+        print("Case: the same shapes, but really broken")
+        rb = tmp / "really-broken"
+        (rb / "scripts").mkdir(parents=True)
+        (rb / "tsconfig.json").write_text('{\n  "compilerOptions": {\n    "target": "es2022", // modern browsers only\n'
+                                          '    "strict": true\n  \n  "include": ["src"]\n}\n', encoding="utf-8")
+        (rb / "package.json").write_text('{\n  // npm cannot read comments\n  "name": "shop",\n  "version": "1.0.0"\n}\n', encoding="utf-8")
+        (rb / "scripts" / "release.js").write_text("const fs = require('fs')\nfunction run(version {\n  return fs.existsSync(version)\n}\n",
+                                                   encoding="utf-8")
+        (rb / "index.html").write_text('<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>Shop</title></head>\n'
+                                       '<body>\n  <div>\n    <p>Hi</p>\n  </div>\n  </div>\n</body>\n</html>\n', encoding="utf-8")
+        got = scan(rb)
+        syn = [(e.get("file"), e.get("line"), (e.get("what") or "")[:70]) for e in got if e.get("kind") == "syntax"]
+        check("a tsconfig.json that is really broken is still found", bool(syn_in("tsconfig.json")), str(syn))
+        check("a package.json with a comment (npm refuses it) is still found", bool(syn_in("package.json")), str(syn))
+        check("a .js file that is really broken is still found", bool(syn_in("release.js")), str(syn))
+        check("a real page with a stray </div> is still found", bool(syn_in("index.html")), str(syn))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

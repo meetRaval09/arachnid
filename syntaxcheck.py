@@ -59,6 +59,21 @@ KINDS = {
     "frag": "glsl", "vert": "glsl", "glsl": "glsl",
     "sql": "sql", "html": "html", "htm": "html", "md": "md",
 }
+# .json files whose own tools read them as JSONC (comments and trailing commas allowed): tsconfig.json, VS Code settings...
+JSONC_NAMES = re.compile(r"(^|/)(tsconfig[^/]*|jsconfig[^/]*|devcontainer|\.devcontainer|\.eslintrc|\.swcrc|deno|biome|turbo|"
+                         r"tslint|typedoc|api-extractor|nest-cli|\.babelrc|babel\.config|\.jshintrc|\.jscsrc|"
+                         r"language-configuration|[^/]*\.code-workspace)\.json$|(^|/)\.vscode/[^/]+\.json$|(^|/)\.devcontainer/[^/]+\.json$",
+                         re.I)
+
+
+def file_ext(rel):
+    """The extension Arachnid checks a file as. A tsconfig.json is JSONC, not strict JSON."""
+    ext = rel.rsplit(".", 1)[-1].lower() if "." in rel.rsplit("/", 1)[-1] else ""
+    if ext == "json" and JSONC_NAMES.search(rel.replace("\\", "/")):
+        return "jsonc"
+    return ext
+
+
 ESBUILD_LOADER = {"js": "jsx", "mjs": "jsx", "cjs": "jsx", "jsx": "jsx", "ts": "ts", "tsx": "tsx"}
 
 
@@ -348,16 +363,26 @@ def shutil_which(name):
     return which(name)
 
 
-def node_check(code, node):
-    """Fallback for plain JavaScript: `node --check` on a temporary .mjs copy."""
-    with tempfile.TemporaryDirectory() as td:
-        f = Path(td) / "x.mjs"
-        f.write_text(code, encoding="utf-8")
-        r = subprocess.run([node, "--check", str(f)], capture_output=True, text=True, encoding="utf-8", timeout=60)
-    if r.returncode == 0:
-        return []
+JSX_HINT = re.compile(r"(return\s*\(?\s*|=>\s*\(?\s*|=\s*)<[A-Za-z>]|</[A-Za-z][\w.]*>|/>")
+
+
+def node_check(code, node, ext="js"):
+    """Fallback for plain JavaScript when esbuild is not available: `node --check`.
+    A .js file can be an ES module OR CommonJS (which allows a top-level `return` and words like `package`), so it is
+    only broken if BOTH readings fail. Node cannot read JSX at all: then it says nothing (unknown is not broken)."""
+    modes = {"mjs": ("mjs",), "cjs": ("cjs",)}.get(ext, ("mjs", "cjs"))
+    r = None
+    for mode in modes:
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / ("x." + mode)
+            f.write_text(code, encoding="utf-8")
+            r = subprocess.run([node, "--check", str(f)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if r.returncode == 0:
+            return []
+    if JSX_HINT.search(code):
+        return []                                   # looks like JSX: node cannot judge it - never call it broken
     err = r.stderr
-    m = re.search(r"x\.mjs:(\d+)", err)
+    m = re.search(r"x\.[cm]js:(\d+)", err)
     line = int(m.group(1)) if m else 1
     msg = ""
     for ln in err.splitlines():
@@ -365,6 +390,21 @@ def node_check(code, node):
             msg = ln
             break
     return [(line, 1, msg or "syntax error")]
+
+
+TEMPLATE_TAGS = re.compile(r"\{%|\{#|<%[=\-_#]?\s|\{\{[#/^>!]")      # Jinja/Django/Liquid, EJS/ERB, Handlebars/Mustache blocks
+PAGE_START = re.compile(r"<!doctype|<html[\s>]|<body[\s>]", re.I)
+
+
+def html_errors_that_count(text, errs):
+    """A template (Jinja, EJS, Handlebars...) is not finished HTML: its tags open and close inside {% if %} blocks
+    and other files, so its tag structure cannot be judged - say nothing. A partial (footer.html = '</body></html>')
+    is a piece of a page: closing tags opened by another file are fine."""
+    if TEMPLATE_TAGS.search(text):
+        return []
+    if not PAGE_START.search(text):
+        errs = [e for e in errs if not re.match(r"Stray closing tag </(html|body|head)>", e[2])]
+    return errs
 
 
 class HtmlCheck(HTMLParser):
@@ -492,7 +532,7 @@ class Oracle:
                 out = self.es.run([("c%d" % i, t, ESBUILD_LOADER.get(ext, "jsx")) for i, t in enumerate(texts)])
                 return [(e[0][0], e[0][1], e[0][2]) if e else None for e in out]
             with ThreadPoolExecutor(max_workers=8) as ex:
-                res = list(ex.map(lambda t: node_check(t, self.node), texts))
+                res = list(ex.map(lambda t: node_check(t, self.node, ext), texts))
             return [r[0] if r else None for r in res]
         return [self._one(t, ext, kind) for t in texts]
 
@@ -871,7 +911,7 @@ def apply_syntax_fixes(root, result, preview, verify_cmd=None, allow_build=True)
     bdir = HERE / "backups" / stamp
     fixed, stuck, ambiguous = [], [], []
     for rel, items in sorted(by_file.items()):
-        ext = rel.rsplit(".", 1)[-1].lower()
+        ext = file_ext(rel)
         if KINDS.get(ext) not in FIXABLE or not oracle.can(ext):
             stuck.append((rel, "this file type cannot be repaired safely on this computer"))
             continue
@@ -1025,6 +1065,7 @@ def run(root):
             skipped += 1
             continue
         rel = p.relative_to(root).as_posix()
+        ext = file_ext(rel) if ext == "json" else ext
         kind = KINDS[ext]
         texts[rel] = text
         if kind == "py":
@@ -1044,8 +1085,11 @@ def run(root):
             results[rel] += [(a, b, m, "markdown") for a, b, m in check_md(text)]
         elif kind == "html":
             errs, emb = check_html(text)
-            results[rel] += [(a, b, m, "html") for a, b, m in errs]
+            results[rel] += [(a, b, m, "html") for a, b, m in html_errors_that_count(text, errs)]
+            template = bool(TEMPLATE_TAGS.search(text))
             for ek, first_line, code in emb:
+                if template or "{{" in code or "{%" in code or "<%" in code:
+                    continue                     # `gtag('config', {{ config|tojson }})` is JavaScript only after the template is filled in
                 off = first_line - 1
                 if ek == "js":
                     js_jobs.append((rel, "mjs", code, off))
@@ -1075,7 +1119,7 @@ def run(root):
                 r, e, c, o = j
                 if node and e in ("js", "mjs", "cjs"):
                     try:
-                        return j, node_check(c, node), "node"
+                        return j, node_check(c, node, e), "node"
                     except Exception:
                         pass
                 return j, [], "skipped"   # a bracket count is not reliable for TS/JSX (regex literals, types): say nothing
