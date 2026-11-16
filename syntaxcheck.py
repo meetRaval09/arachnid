@@ -446,9 +446,11 @@ def check_md(text):
     for i, ln in enumerate(text.splitlines(), 1):
         m = re.match(r"^\s{0,3}(`{3,}|~{3,})", ln)
         if m:
+            rest = ln.strip()[len(m.group(1)):]
             if fence is None:
-                fence = (m.group(1)[0], len(m.group(1)), i)
-            elif m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1]:
+                if not (m.group(1)[0] == "`" and "`" in rest):     # "```` ```x``` ````" is inline code, not a fence
+                    fence = (m.group(1)[0], len(m.group(1)), i)
+            elif m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not rest.strip():
                 fence = None
     if fence:
         errs.append((fence[2], 1, "This code block (%s) is opened here but never closed" % (fence[0] * 3)))

@@ -2370,12 +2370,15 @@ def check_json(rel, text, project_root, files):
         base = posixpath.dirname(rel)
 
         def exists(p):
-            p = posixpath.normpath(posixpath.join(base, p.lstrip("./") if p.startswith("./") else p))
-            return p in files or any(f.startswith(p.rstrip("/") + "/") for f in files) or \
-                any(f == p + ext for f in files for ext in (".js", ".ts", ".mjs", ".cjs", "/index.js"))
+            p = posixpath.normpath(posixpath.join(base, p))      # not lstrip("./"): it eats the dot of ".opencode/"
+            if p in files or any(f.startswith(p.rstrip("/") + "/") for f in files) or \
+                    any(f == p + ext for f in files for ext in (".js", ".ts", ".mjs", ".cjs", "/index.js")):
+                return True
+            disk = os.path.join(str(project_root), *p.split("/"))       # hidden folders are not in the file list
+            return any(os.path.exists(disk + ext) for ext in ("", ".js", ".ts", ".mjs", ".cjs", "/index.js"))
         for key in ("main", "module", "browser"):
             v = data.get(key)
-            if isinstance(v, str) and v and not v.lstrip("./").startswith(BUILD_DIRS) and not exists(v):
+            if isinstance(v, str) and v and not re.sub(r"^(?:\./)+", "", v).startswith(BUILD_DIRS) and not exists(v):
                 hit = re.search(r'"%s"\s*:' % key, text)
                 add(out, rel, _line(text, hit.start()) if hit else 1, "json-missing-file", "\"%s\": \"%s\"" % (key, v[:50]))
         for name, cmd in (data.get("scripts") or {}).items():
@@ -2383,7 +2386,7 @@ def check_json(rel, text, project_root, files):
                 continue
             for sm in re.finditer(r"\b(?:node|nodemon|ts-node|tsx|python3?|deno run|bun)\s+(?:--?[\w-]+(?:=\S+)?\s+)*([\w./-]+\.(?:js|mjs|cjs|ts|py))\b", cmd):
                 target = sm.group(1)
-                if not target.lstrip("./").startswith(BUILD_DIRS) and not exists(target):
+                if not re.sub(r"^(?:\./)+", "", target).startswith(BUILD_DIRS) and not exists(target):
                     hit = re.search(r'"%s"\s*:' % re.escape(name), text)
                     add(out, rel, _line(text, hit.start()) if hit else 1, "json-missing-file", "script \"%s\" runs %s" % (name, target))
         nm = data.get("name")
@@ -2414,6 +2417,8 @@ def _md_parts(text):
     fence, fence_line = None, None
     for i, ln in enumerate(lines):
         fm = re.match(r"^ {0,3}(`{3,}|~{3,})", ln)
+        if fm and fm.group(1)[0] == "`" and "`" in ln.strip()[len(fm.group(1)):]:
+            fm = None                                    # not a fence: a backtick fence's line holds no other backtick
         if fence:
             out.append("")
             if fm and fm.group(1)[0] == fence[0] and len(fm.group(1)) >= len(fence) and not ln.strip()[len(fm.group(1)):].strip():

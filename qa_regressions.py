@@ -18,10 +18,18 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
   4. Scanning one project after another: a checker that found nothing in the second project left the FIRST project's
      report behind (a nested folder from project A showed up in project B).
      Still found: the nested folder when project A itself is scanned.
+  5. ponytail (AI agent plugin) and Quarkus Dev UI: six text/Markdown/package.json false alarms and 29 wrong "dead code"
+     warnings - a file inside a hidden folder (.opencode/) called missing, "</a>." read as "space before a full stop",
+     "one email to many subscribers" read as "too many", "Claude Code `2.1`" read as a repeated word, a line of inline
+     code that starts with ```` read as an unclosed code block, "../benchmarks/" read as doubled punctuation, and the
+     text of a multi-line return html`...` read as code that can never run.
+     Still found: a real missing file, a real space before a comma, "this is to much", "the the", a real unclosed code
+     block, ",,", real code after a return - and Quarkus's two real broken translation files.
 """
 import base64
 import json
 import os
+import posixpath
 import shutil
 import subprocess
 import sys
@@ -125,6 +133,82 @@ def main():
         got = scan(app)
         check("project B right after: project A's nested folder does NOT appear", not any(e.get("kind") == "nested-folder" for e in got),
               str([e for e in got if e.get("kind") == "nested-folder"]))
+
+        print("Case: ponytail and Quarkus Dev UI (what was wrongly reported)")
+        pt = tmp / "ponytail"
+        (pt / ".opencode" / "plugins").mkdir(parents=True)
+        (pt / ".opencode" / "plugins" / "plugin.mjs").write_text("export const Plugin = async () => ({});\n", encoding="utf-8")
+        (pt / "package.json").write_text(json.dumps({"name": "ponytail", "version": "1.0.0", "main": "./.opencode/plugins/plugin.mjs"},
+                                                   indent=2) + "\n", encoding="utf-8")
+        (pt / "README.md").write_text(
+            "# Ponytail\n\n"
+            "Benchmarked on 39 tasks, five runs each. <a href=\"#numbers\">Details</a>.\n\n"
+            "It handles a privacy case: one email to many subscribers without leaking addresses.\n\n"
+            "The engine was Claude Code `2.1.177`, run headless.\n\n"
+            "The raw numbers are in [../benchmarks/](../benchmarks/).\n\n"
+            "## Numbers\n\n"
+            "The old gate only matched\n"
+            "   ```` ```fenced``` ```` blocks, so bare code failed.\n\n"
+            "```js\nconsole.log(1);\n```\n", encoding="utf-8")
+        (pt / "page.js").write_text(
+            "import { html } from 'lit';\n\n"
+            "export function render(enabled) {\n"
+            "    if (!enabled) {\n"
+            "        return html`\n"
+            "        Build metrics not enabled.\n"
+            "        `;\n"
+            "    } else {\n"
+            "        return html`\n"
+            "        <p>Ready</p>\n"
+            "        `;\n"
+            "    }\n"
+            "}\n", encoding="utf-8")
+        got = scan(pt)
+        def kinds(*ks):
+            return [(e.get("kind"), e.get("file"), e.get("line"), (e.get("what") or "")[:60]) for e in got if e.get("kind") in ks]
+        check("a file in a hidden folder (.opencode/) is not called missing", not kinds("json-missing-file"), str(kinds("json-missing-file")))
+        check("'</a>.' is not a space before a full stop", not kinds("space-before-punct"), str(kinds("space-before-punct")))
+        check("'one email to many subscribers' is not 'too many'", not kinds("to-much"), str(kinds("to-much")))
+        check("'Claude Code `2.1.177`' is not a repeated word", not kinds("repeated-word"), str(kinds("repeated-word")))
+        check("a line of inline code starting with ```` is not an unclosed code block", not kinds("md-unclosed-fence", "syntax"),
+              str(kinds("md-unclosed-fence", "syntax")))
+        check("'../benchmarks/' is not doubled punctuation", not kinds("double-punct"), str(kinds("double-punct")))
+        check("the text of a multi-line `return html`...`` is not dead code", not kinds("dead-code"), str(kinds("dead-code")))
+
+        print("Case: the same shapes, but real problems")
+        rp = tmp / "real-problems-2"
+        (rp / ".opencode").mkdir(parents=True)
+        (rp / "i18n").mkdir()
+        (rp / "package.json").write_text(json.dumps({"name": "plugin", "version": "1.0.0", "main": "./.opencode/plugins/gone.mjs"},
+                                                   indent=2) + "\n", encoding="utf-8")
+        (rp / "README.md").write_text(
+            "# Plugin\n\n"
+            "Hello , this plugin is small.\n\n"
+            "Setting it up is to much work for most people.\n\n"
+            "Read the the guide first.\n\n"
+            "Lists use commas,, not semicolons.\n\n"
+            "```js\nconsole.log(1);\n", encoding="utf-8")
+        (rp / "page.js").write_text(
+            "export function total(items) {\n"
+            "    return items.length;\n"
+            "    console.log(items);\n"
+            "}\n", encoding="utf-8")
+        (rp / "i18n" / "fr-CA.js").write_text("export const templates = {\n    'info-arch': 'Arche\n\n',\n    'info-commit-id': 'ID',\n};\n",
+                                              encoding="utf-8")
+        (rp / "i18n" / "fr-BE.js").write_text("export const templates = {\n    'info-name': 'Nom',\n    'info-cleared': 'Vid\u00e9'\n",
+                                              encoding="utf-8")
+        got = scan(rp)
+        check("a package.json pointing to a file that is really missing is still found", bool(kinds("json-missing-file")))
+        check("a real space before a comma is still found", bool(kinds("space-before-punct")))
+        check("'is to much' is still found", bool(kinds("to-much")))
+        check("'the the' is still found", bool(kinds("repeated-word")))
+        check("',,' is still found", bool(kinds("double-punct")))
+        check("a real unclosed code block is still found", bool(kinds("md-unclosed-fence", "syntax")))
+        check("real code after a return is still found", any(e.get("kind") in ("dead-code", "js-unreachable") for e in got),
+              str(sorted({e.get("kind") for e in got})))
+        broken = {posixpath.basename(e.get("file") or "") for e in got if e.get("kind") == "syntax"}
+        check("Quarkus's two broken translation files (a split text, a cut-off file) are still found",
+              {"fr-CA.js", "fr-BE.js"} <= broken, str(broken))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

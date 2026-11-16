@@ -362,7 +362,7 @@ def _package_entries(proj):
         for k in ("main", "module", "browser", "types", "typings", "source", "exports"):
             walk(data.get(k), found)
         for f in found:
-            f = f.lstrip("./")
+            f = re.sub(r"^(?:\./)+", "", f)             # not lstrip("./"): it eats the dot of ".opencode/"
             stem = re.sub(r"\.(d\.ts|[cm]?[jt]sx?)$", "", f)
             for cand in (stem, re.sub(r"^(dist|build|lib|out|esm|cjs)/", "src/", stem)):
                 entries.add(base + cand)
@@ -454,6 +454,8 @@ def unreachable(proj):
                 continue
             if s.endswith("{") or s.endswith(":") and fam != "py":
                 continue
+            if fam == "js" and s.count("`") % 2:
+                continue                                          # `return html\`` - the text below is still part of the return
             indent = ln[:len(ln) - len(ln.lstrip())]
             for j in range(i + 1, min(i + 8, len(lines))):
                 t = lines[j]

@@ -66,7 +66,7 @@ def rule(rid, pat, conf, fix, repl, blunt, flags=I, pages=True, exclude=None):
     RULES.append(dict(id=rid, rx=re.compile(pat, flags), conf=conf, fix=fix, repl=repl, blunt=blunt, pages=pages, exclude=exclude))
 
 
-rule("repeated-word", r"\b([A-Za-z]{2,})(\s+)\1\b", "high", True,
+rule("repeated-word", r"\b([A-Za-z]{2,})(\s+)(?!(?-i:CODE|URL)\b)\1\b", "high", True,
      lambda m: m.group(1),
      lambda m: "You typed '%s' twice in a row. Readers trip over it and it looks careless. Delete one." % m.group(1),
      exclude=lambda m: m.group(1).lower() in {"had", "that", "bye", "no", "very", "so", "knock", "duran", "yo", "blah", "ha", "hello", "go", "boom"} or m.group(1).isupper())
@@ -101,7 +101,7 @@ rule("missing-apostrophe", r"\b(" + "|".join(CONTR) + r")\b", "high", True,
      exclude=lambda m: m.group(1).isupper())
 rule("lowercase-i", r"\bi\s+(am|was|have|will|can|think|had|would|do|need|want|like|love|know|see|got|just|feel|hope|believe|guess|mean)\b", "high", True,
      lambda m: "I " + m.group(1), lambda m: "The word 'I' is always a capital letter. '%s' looks like a typing slip." % m.group(0), flags=0)
-rule("to-much", r"\bto\s+(much|many)\b(?!\s+(?:of|people|users|more))", "medium", False, None,
+rule("to-much", r"\b(?:is|are|was|were|be|been|way|far|it's|that's)\s+to\s+(much|many)\b(?!\s+(?:of|people|users|more))", "medium", False, None,
      lambda m: "'to %s' - if you mean 'more than enough', it is 'too %s' (with two o's). 'to' is the direction word." % (m.group(1), m.group(1)))
 rule("too-to", r"\btoo\s+(be|do|go|make|get|have|see|use|try|help|find|take|give)\b", "medium", False, None,
      lambda m: "'too %s' - 'too' means 'also / excessively'. Before a verb you almost certainly want 'to %s'." % (m.group(1), m.group(1)))
@@ -118,7 +118,7 @@ rule("article-an-a", r"\ban\s+([bcdfgjklmnpqrstvwxyz][a-z]+)\b", "low", False, N
      exclude=lambda m: m.group(1).startswith(("hour", "honest", "honor", "honour", "heir", "herb")))
 rule("space-before-punct", r"(?<=[A-Za-z])\s+[,;](?=\s)|(?<=[A-Za-z])\s+\.(?=\s|$)", "low", False, None,
      lambda m: "A space before '%s' - punctuation sticks to the word before it." % m.group(0).strip())
-rule("double-punct", r"(?<![.\w])\.\.(?!\.)|,,|;;", "low", False, None, lambda m: "'%s' doubled punctuation - one is a typo." % m.group(0))
+rule("double-punct", r"(?<![.\w])\.\.(?![./\\])|,,|;;", "low", False, None, lambda m: "'%s' doubled punctuation - one is a typo." % m.group(0))
 rule("missing-space", r"\b[a-z]{3,}[.!?][A-Z][a-z]{2,}\b", "medium", False, None,
      lambda m: "'%s' - no space after the full stop, so two sentences are glued into one word." % m.group(0),
      flags=0, exclude=lambda m: m.group(0).split(".")[0] in {"node", "vue", "next", "nuxt", "three", "chart", "socket", "express", "alpine", "ember"})
@@ -163,7 +163,7 @@ def date_problems(text):
 # turning files into paragraphs of plain prose
 # ----------------------------------------------------------------------------------------------------------------
 URL = re.compile(r"https?://\S+|www\.\S+|\b[\w.+-]+@[\w-]+\.[\w.]+\b")
-FENCE = re.compile(r"^\s*(```|~~~)")
+FENCE = re.compile(r"^\s*(?:`{3,}(?!.*`)|~{3,})")               # a ``` line holding more backticks is inline code
 LIST_MARK = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
@@ -176,6 +176,7 @@ def clean_md(s):
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)
     s = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", s)
     s = URL.sub("URL", s)
+    s = re.sub(r"<[^>]+>(?=[.,;:!?])", "", s)              # "...</a>." must not become "... ."
     s = re.sub(r"<[^>]+>", " ", s)
     s = re.sub(r"&nbsp;|&amp;|&[a-z]+;", " ", s)
     s = re.sub(r"\*\*|__|~~|(?<![\w])_|_(?![\w])|\*", "", s)
