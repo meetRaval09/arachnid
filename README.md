@@ -1,13 +1,17 @@
-# 🕷️ Arachnid
+<p align="center">
+  <img src="docs/logo.png" alt="Arachnid" width="560">
+</p>
 
-[![Tests](https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml/badge.svg)](https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml)
-[![Docker image](https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml/badge.svg)](https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml)
-[![MIT licence](https://img.shields.io/badge/licence-MIT-green.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml"><img src="https://github.com/meetRaval09/arachnid/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml"><img src="https://github.com/meetRaval09/arachnid/actions/workflows/docker.yml/badge.svg" alt="Docker image"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-green.svg" alt="MIT licence"></a>
+</p>
 
-**A spider that crawls your project, finds the bugs nothing else notices, and fixes only what it can PROVE is harmless.**
+<h3 align="center">A spider that crawls your project, finds the bugs nothing else notices,<br>and fixes only what it can PROVE is harmless.</h3>
 
-It never changes how your product looks or behaves, not even by one pixel. Anything it cannot prove is held back and
-reported to you, and anything that changes your code waits for a person to approve it.
+<p align="center">It never changes how your product looks or behaves, not even by one pixel. Anything it cannot prove is held back and
+reported to you, and anything that changes your code waits for a person to approve it.</p>
 
 ## The proof, in numbers
 
