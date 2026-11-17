@@ -230,6 +230,15 @@ Quarkus's Dev UI (Red Hat's Java framework). Reading the code around it found a 
 Kafka Streams topology, the message read " downloaded." with no file name, because the name was read before it was
 set. The fix was reviewed and merged by the Dev UI lead and ships in Quarkus 4.1.
 
+<a href="https://github.com/quarkusio/quarkus/pull/58411"><img src="docs/quarkus-merged.png" alt="Quarkus pull request #58411, merged by phillip-kruger into quarkusio:main" width="760"></a>
+
+**Also merged: [Quarkus #58447](https://github.com/quarkusio/quarkus/pull/58447).** While working in a Dev UI file
+Arachnid had flagged, reading the code by hand turned up a second bug: the "Build step" column header used a
+translation id that does not exist, so it was never translated. The fix uses the existing, already-translated id;
+it was merged by the Dev UI lead.
+
+<a href="https://github.com/quarkusio/quarkus/pull/58447"><img src="docs/quarkus-merged-2.png" alt="Quarkus pull request #58447, merged by phillip-kruger into quarkusio:main" width="760"></a>
+
 Arachnid read about 2,250 real pages (Google Chrome's and MDN's official sample sites) and about 2,900 real CSS files.
 Every new HTML and CSS decision it raised was a real bug - for example:
 
