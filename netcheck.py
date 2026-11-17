@@ -69,7 +69,7 @@ TLS_OFF = [
     (r"\bcurl\b[^\n|;]*\s(?:-k|--insecure)\b", "`curl -k / --insecure`"), (r"\bwget\b[^\n|;]*--no-check-certificate", "`wget --no-check-certificate`"),
     (r"CURLOPT_SSL_VERIFYPEER['\"]?\s*,?\s*(?:false|0)\b", "PHP cURL peer verification off"),
 ]
-LOCAL_OK = re.compile(r"(^|/)(tests?|spec|specs|__tests__|mocks?|fixtures?|docs?|examples?|samples?|e2e|cypress)(/|$)|\.(test|spec|stories)\.|\.md$|\.dev\.|\.local\.|\.example$|\.sample$|docker-compose|README|vite\.config|webpack\.config|setupProxy|\.env", re.I)
+LOCAL_OK = re.compile(r"(^|/)(tests?|spec|specs|__tests__|mocks?|fixtures?|docs?|examples?|samples?|e2e|cypress)(/|$)|\.(test|spec|stories)\.|\.md$|\.dev\.|\.local\.|\.example$|\.sample$|docker-compose|README|vite\.config|webpack\.config|setupProxy|\.env|(^|/)(dev-?ui|dev-?tools?)(/|$)", re.I)
 HTTP_PY = re.compile(r"^(?:requests|httpx)\.(get|post|put|patch|delete|head|options|request)$")
 
 
@@ -201,15 +201,40 @@ def py_calls(rel, text, fs):
 JS_NET = re.compile(r"\b(fetch|axios(?:\.(?:get|post|put|delete|patch|request))?|\$\.(?:ajax|get|post)|new XMLHttpRequest|new WebSocket|got\.(?:get|post)|superagent\.\w+)\s*\(")
 
 
+def _close_paren(code, i):
+    """Index just after the ')' that closes the '(' before position i (strings and comments are already blanked)."""
+    depth = 1
+    while i < len(code) and depth:
+        depth += {"(": 1, ")": -1}.get(code[i], 0)
+        i += 1
+    return i
+
+
+def _chain(code, i):
+    """The text of the whole call chain that starts after position i: `.then(...)\n .then(...)\n .catch(...)`."""
+    j = i
+    while True:
+        m = re.match(r"\s*\.\s*([A-Za-z_$][\w$]*)\s*\(", code[j:])
+        if not m:
+            return code[i:j]
+        j = _close_paren(code, j + m.end())
+
+
 def js_calls(rel, text, fs):
     code = insights.code_only(text)
     for m in JS_NET.finditer(code):
         before = code[max(0, m.start() - 700): m.start()]
-        after = code[m.end(): m.end() + 700]
         if m.group(1) in ("new WebSocket", "new XMLHttpRequest"):
             continue
+        end = _close_paren(code, m.end())
+        chain = _chain(code, end)
+        after = code[end: end + 700]
         in_try = len(re.findall(r"\btry\s*\{", before)) > len(re.findall(r"\bcatch\b|\bfinally\b", before))
-        handled = in_try or re.search(r"\.catch\s*\(", after) or re.search(r"\.then\s*\([^()]*,\s*(?:function|\(|\w+\s*=>)", after) or re.search(r"\bon(?:error|fail)\b|\berror\s*:", after[:300])
+        handled = (in_try or re.search(r"\.catch\s*\(", chain) or re.search(r"\.then\s*\([^()]*,\s*(?:function|\(|\w+\s*=>)", chain)
+                   or re.search(r"\bon(?:error|fail)\b|\berror\s*:", after[:300])
+                   or re.search(r"\.ok\b|\.status\b", after[:400]))         # `if (!response.ok)` - the answer is checked
+        if not handled and not chain and re.match(r"\s*(?:;|\n|$)", code[end:]) and re.search(r"(?:^|[;{}\n])\s*$", code[:m.start()]):
+            continue            # `fetch(url);` alone: a deliberate "poke the server" - nothing waits for the answer
         if not handled:
             fs.append(finding("warning", "no-error-handling", rel, insights.line_of(text, m.start()), "`%s(...)` has no visible error handling" % m.group(1),
                               "when the network drops or the server errors, the user may see a blank screen or the app may crash with an unhandled error",

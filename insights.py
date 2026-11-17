@@ -76,9 +76,9 @@ LEAK_RULES = [
     dict(id="observer-never-disconnected", fam=JS, conf="low", mode="none",
          open=r"new\s+(?:IntersectionObserver|ResizeObserver|MutationObserver)\(", close=r"\.(?:disconnect|unobserve)\(",
          msg="creates an observer that is never disconnected", tip="disconnect it when the thing it watches goes away"),
-    dict(id="blob-url-never-revoked", fam=JS, conf="medium", mode="none",
+    dict(id="blob-url-never-revoked", fam=JS, conf="medium", mode="each",
          open=r"URL\.createObjectURL\(", close=r"URL\.revokeObjectURL\(",
-         msg="creates object URLs (they hold the whole file in memory) and never revokes them", tip="call URL.revokeObjectURL(url) when the URL is no longer needed"),
+         msg="creates object URLs (they hold the whole file in memory) that are never revoked", tip="call URL.revokeObjectURL(url) when the URL is no longer needed"),
     dict(id="socket-never-closed", fam=JS, conf="low", mode="none",
          open=r"new\s+(?:WebSocket|EventSource)\(", close=r"\.close\(",
          msg="opens a connection that this file never closes", tip="close it when it is no longer needed"),
@@ -277,11 +277,18 @@ def leaks_and_memory(proj):
             if not opens:
                 continue
             closes = len(re.findall(r["close"], body, fl))
-            bad = closes == 0 if r["mode"] == "none" else (len(opens) - closes >= 2)
+            first = opens[0]
+            if r["mode"] == "each":
+                # every create needs its OWN clean-up nearby: one revoke elsewhere in the file does not cover a second create
+                alone = [o for o in opens if not re.search(r["close"], body[o.end(): o.end() + 800], fl)]
+                bad = bool(alone) and len(opens) > closes
+                first = alone[0] if alone else first
+            else:
+                bad = closes == 0 if r["mode"] == "none" else (len(opens) - closes >= 2)
             if bad:
                 n = len(opens)
                 detail = "%s (%d place%s, %d matching clean-up)" % (r["msg"], n, "" if n == 1 else "s", closes)
-                out.append(finding("leak", r["conf"], rel, line_of(body, opens[0].start()), detail, r["tip"], r["id"]))
+                out.append(finding("leak", r["conf"], rel, line_of(body, first.start()), detail, r["tip"], r["id"]))
         if fam == "js":
             out += react_effects(rel, body)
         for fams, pat, msg, tip in READ_ALL:

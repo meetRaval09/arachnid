@@ -31,6 +31,11 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      (footer.html = "</body></html>") and a Jinja template.
      Still found: a tsconfig.json that is really broken, a .js file that is really broken, a package.json with a
      comment (npm refuses it) and a real page with a stray </div>.
+  7. Quarkus Dev UI (second scan): a fetch whose .catch sits 25 lines further down its .then() chain, a fetch whose
+     answer is checked with `if (!response.ok)`, a deliberate one-line "ping" fetch, and localhost inside Dev UI (which
+     only runs on the developer's own computer) were all raised as warnings.
+     Still found: a fetch with no handling at all, localhost in real app code - and a MISSED leak, now found: one
+     revokeObjectURL in a file no longer hides a second object URL that is never revoked.
 """
 import base64
 import json
@@ -267,6 +272,81 @@ def main():
         check("a package.json with a comment (npm refuses it) is still found", bool(syn_in("package.json")), str(syn))
         check("a .js file that is really broken is still found", bool(syn_in("release.js")), str(syn))
         check("a real page with a stray </div> is still found", bool(syn_in("index.html")), str(syn))
+
+        print("Case: Quarkus Dev UI, second scan (what was wrongly reported)")
+        dv = tmp / "devui-app"
+        (dv / "src" / "main" / "resources" / "dev-ui").mkdir(parents=True)
+        (dv / "src" / "main" / "resources" / "dev-ui" / "qwc-provider.js").write_text(
+            "export class Provider {\n"
+            "    static check(onIn, onOut) {\n"
+            "        fetch(window.location.origin + '/session')\n"
+            "            .then(response => response.json())\n"
+            "            .then(result => {\n" + "                this.step(result);\n" * 22 +
+            "                onIn();\n"
+            "            })\n"
+            "            .catch(error => {\n"
+            "                console.warn(error);\n"
+            "                onOut();\n"
+            "            });\n"
+            "    }\n\n"
+            "    async load() {\n"
+            "        const response = await fetch('/endpoints/routes.json');\n"
+            "        if (!response.ok) {\n"
+            "            this.failed = true;\n"
+            "            return;\n"
+            "        }\n"
+            "        this.routes = await response.json();\n"
+            "    }\n\n"
+            "    saved(root) {\n"
+            "        fetch(root);\n"
+            "        this.notify('saved');\n"
+            "    }\n\n"
+            "    static serviceUrl(port, path) {\n"
+            "        return 'http://localhost:' + port + path;\n"
+            "    }\n\n"
+            "    download(blob) {\n"
+            "        const url = URL.createObjectURL(blob);\n"
+            "        const a = document.createElement('a');\n"
+            "        a.href = url;\n"
+            "        a.click();\n"
+            "        URL.revokeObjectURL(url);\n"
+            "    }\n"
+            "}\n", encoding="utf-8")
+        got = scan(dv)
+        check("a fetch whose .catch is far down its .then() chain is handled", not kinds("no-error-handling"), str(kinds("no-error-handling")))
+        check("localhost inside Dev UI (runs on the developer's computer) is fine", not kinds("localhost-left"), str(kinds("localhost-left")))
+        check("an object URL revoked right after the click is not a leak", not [e for e in got if e.get("kind") == "leak"],
+              str([e for e in got if e.get("kind") == "leak"]))
+
+        print("Case: the same shapes, but real problems")
+        rv = tmp / "real-app"
+        (rv / "src").mkdir(parents=True)
+        (rv / "src" / "api.js").write_text(
+            "export function loadItems(show) {\n"
+            "    fetch('/api/items')\n"
+            "        .then(response => response.json())\n"
+            "        .then(items => show(items));\n"
+            "}\n\n"
+            "export function serviceUrl(port) {\n"
+            "    return 'http://localhost:' + port + '/api';\n"
+            "}\n\n"
+            "export function save(blob) {\n"
+            "    const url = URL.createObjectURL(blob);\n"
+            "    const a = document.createElement('a');\n"
+            "    a.href = url;\n"
+            "    a.click();\n"
+            "    URL.revokeObjectURL(url);\n"
+            "}\n" + "\n" * 40 +
+            "export function cell(value) {\n"
+            "    const url = URL.createObjectURL(new Blob([value]));\n"
+            "    return '<a href=\"' + url + '\" download>download</a>';\n"
+            "}\n", encoding="utf-8")
+        got = scan(rv)
+        check("a fetch with no error handling at all is still found", bool(kinds("no-error-handling")), str(sorted({e.get('kind') for e in got})))
+        check("localhost in real app code is still found", bool(kinds("localhost-left")), str(sorted({e.get('kind') for e in got})))
+        leak = [e for e in got if e.get("kind") == "leak" and "object URL" in (e.get("what") or "")]
+        check("an object URL that is never revoked is found even when another one in the file is",
+              bool(leak) and leak[0].get("line") == 59, str(leak))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))
