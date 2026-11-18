@@ -233,6 +233,8 @@ def js_calls(rel, text, fs):
         handled = (in_try or re.search(r"\.catch\s*\(", chain) or re.search(r"\.then\s*\([^()]*,\s*(?:function|\(|\w+\s*=>)", chain)
                    or re.search(r"\bon(?:error|fail)\b|\berror\s*:", after[:300])
                    or re.search(r"\.ok\b|\.status\b", after[:400]))         # `if (!response.ok)` - the answer is checked
+        if re.search(r"(?:\breturn|=>)\s*(?:await\s+)?$", code[:m.start()]):
+            handled = True     # `return fetch(...)` / `=> fetch(...)`: the caller gets the promise and handles errors
         if not handled and not chain and re.match(r"\s*(?:;|\n|$)", code[end:]) and re.search(r"(?:^|[;{}\n])\s*$", code[:m.start()]):
             continue            # `fetch(url);` alone: a deliberate "poke the server" - nothing waits for the answer
         if not handled:

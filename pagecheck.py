@@ -265,7 +265,14 @@ def pages_in(site):
         dn[:] = sorted(d for d in dn if d not in SKIP_DIRS and not d.startswith("."))
         for f in sorted(fn):
             if f.lower().endswith((".html", ".htm")):
-                out.append(os.path.relpath(os.path.join(dp, f), site).replace(os.sep, "/"))
+                rel = os.path.relpath(os.path.join(dp, f), site).replace(os.sep, "/")
+                try:
+                    with open(os.path.join(dp, f), encoding="utf-8", errors="replace") as fh:
+                        if links.syntaxcheck.is_server_template(rel, fh.read()):
+                            continue       # a server template is not a page a browser can open as it is
+                except OSError:
+                    continue
+                out.append(rel)
     out.sort(key=lambda p: (p.count("/"), p != "index.html", p))      # the main pages first
     return out[:MAX_PAGES]
 

@@ -394,6 +394,17 @@ def node_check(code, node, ext="js"):
 
 TEMPLATE_TAGS = re.compile(r"\{%|\{#|<%[=\-_#]?\s|\{\{[#/^>!]")      # Jinja/Django/Liquid, EJS/ERB, Handlebars/Mustache blocks
 PAGE_START = re.compile(r"<!doctype|<html[\s>]|<body[\s>]", re.I)
+# Qute (Quarkus), and any file kept in a templates folder: {#for d in data}, {/for}, href="{contextRoot}favicon.ico"
+TEMPLATE_PATH = re.compile(r"(^|/)[^/]*templates?/|\.qute\.", re.I)
+QUTE_BLOCK = re.compile(r"\{[#/][A-Za-z]|\{![^}]*!\}")
+QUTE_ATTR = re.compile(r"""=\s*["']\{[A-Za-z_][\w.:]*\}""")
+
+
+def is_server_template(rel, text):
+    """True for a file the server fills in before anyone sees it (Qute, Jinja, EJS, Handlebars...): it is not finished
+    HTML or JavaScript, so its syntax, its links and how it loads in a browser cannot be judged from the file itself."""
+    return bool(TEMPLATE_TAGS.search(text) or QUTE_BLOCK.search(text) or TEMPLATE_PATH.search(rel.replace("\\", "/"))
+                or QUTE_ATTR.search(text))
 
 
 def html_errors_that_count(text, errs):
@@ -1064,6 +1075,9 @@ def run(root):
         if text is None:
             skipped += 1
             continue
+        if ext in ("html", "htm", "js", "mjs", "cjs", "css", "json", "xml", "svg") and \
+                is_server_template(p.relative_to(root).as_posix(), text):
+            continue                             # filled in by the server first: not finished HTML/JS yet
         rel = p.relative_to(root).as_posix()
         ext = file_ext(rel) if ext == "json" else ext
         kind = KINDS[ext]

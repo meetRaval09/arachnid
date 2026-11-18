@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import dedupe  # noqa: E402
 import ledger  # noqa: E402
+import syntaxcheck  # noqa: E402
 
 TEMPLATE = re.compile(r"\{\{|\{%|<%|<\?|\$\{|\[\[|#\{|%\{|\{\$")
 HAS_EXT = re.compile(r"\.[A-Za-z0-9]{1,6}$")
@@ -94,6 +95,8 @@ def check(root):
             text = (project.root / rel).read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        if syntaxcheck.is_server_template(rel, text):
+            continue                       # href="{contextRoot}favicon.ico": the server decides where the files are
         pages += 1
         scripts = script_ranges(text) if ext in ("html", "htm") else []
         # <base href="..."> moves every relative path of the page somewhere else - only paths from the root are checked

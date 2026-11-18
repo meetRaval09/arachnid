@@ -1221,7 +1221,7 @@ def _check_js(rel, text):
         args_ = code[m.end():end]
         if m.group(2) in ("replace", "replaceAll") and re.search(r"\bfunction\b|=>", args_):
             continue                                # replace(re, fn) used to walk through matches
-        if re.search(r"(?i)(location|router|history|navigation|navigator|nav|editor|doc|range|selection|cm|view)$", m.group(1)):
+        if re.search(r"(?i)(location|router|history|navigation|navigator|nav|editor|doc|range|selection|cm|view|classList|relList|sandbox)$", m.group(1)):
             continue                                # location.replace(url) navigates; editor.replace(...) edits
         if re.match(r"[ \t]*;?[ \t]*(\n|$|//)", after) and not re.match(r"\s*\.", after) and (prev == "" or prev[-1] in ";{}") \
                 and m.group(1) not in ("this", "super", "console", "Object", "Array", "Promise", "window", "document", "$", "jQuery", "_", "app", "router"):

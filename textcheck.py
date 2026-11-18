@@ -172,7 +172,7 @@ def clean_md(s):
     s = re.sub(r"^\s*#{1,6}\s+", "", s)
     s = LIST_MARK.sub("", s)
     s = re.sub(r"`[^`]*`", "CODE", s)                # no padding: "`a.py`, `b.py`" must not become "CODE , CODE"
-    s = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"!\[([^\]]*)\]\([^)]*\)", "", s)           # pictures: their alt text is not part of the sentence
     s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)
     s = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", s)
     s = URL.sub("URL", s)
@@ -235,25 +235,39 @@ def paragraphs_doc(text, ext):
 
 class VisibleText(HTMLParser):
     SKIP = {"script", "style", "noscript", "code", "pre", "svg", "template", "textarea", "kbd", "samp", "math"}
+    # tags that sit INSIDE a sentence: "It can be tested in the <a>Dev UI</a> (dev mode only)." is one sentence
+    INLINE = {"a", "b", "i", "em", "strong", "span", "small", "abbr", "mark", "sub", "sup", "u", "s", "q", "cite",
+              "time", "label", "font", "bdi", "bdo", "dfn", "var", "data", "del", "ins"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.depth = 0
         self.chunks = []
+        self.open = False           # True while the last chunk may still continue (only inline tags since)
 
     def handle_starttag(self, tag, attrs):
         if tag in self.SKIP:
             self.depth += 1
+        if tag not in self.INLINE:
+            self.open = False
 
     def handle_endtag(self, tag):
         if tag in self.SKIP and self.depth:
             self.depth -= 1
+        if tag not in self.INLINE:
+            self.open = False
 
     def handle_data(self, data):
         if not self.depth:
             t = " ".join(data.split())
             if t:
-                self.chunks.append((self.getpos()[0], t))
+                if self.open and self.chunks:
+                    ln, prev = self.chunks[-1]
+                    glue = "" if t[0] in ".,;:!?)" or prev.endswith("(") else " "
+                    self.chunks[-1] = (ln, prev + glue + t)
+                else:
+                    self.chunks.append((self.getpos()[0], t))
+                self.open = True
 
 
 def paragraphs_page(text):
