@@ -97,7 +97,7 @@ LEAK_RULES = [
     dict(id="static-collection-grows", fam={"java"}, conf="low", mode="none", open=r"static\s+(?:final\s+)?(?:List|Map|Set|Queue|Deque|ArrayList|HashMap|HashSet)<",
          close=r"\.(?:remove|clear|poll|evict|removeIf)\(",
          msg="has a static collection but never removes anything from it", tip="a static collection lives for the whole run; if it only grows, memory only grows"),
-    dict(id="malloc-without-free", fam={"c"}, conf="medium", mode="gap", open=r"\b(?:malloc|calloc|realloc|strdup)\s*\(", close=r"\bfree\s*\(",
+    dict(id="malloc-without-free", fam={"c"}, skip_ext={"c", "h"}, conf="medium", mode="gap", open=r"\b(?:malloc|calloc|realloc|strdup)\s*\(", close=r"\bfree\s*\(",
          msg="allocates memory more often than it frees it", tip="every malloc/calloc needs exactly one free on every path; consider a tool like Valgrind or AddressSanitizer to confirm"),
     dict(id="new-without-delete", fam={"c"}, conf="medium", mode="gap", open=r"\bnew\s+[A-Za-z_][\w:<>]*\s*[\(\[{;]", close=r"\bdelete\b",
          skip_if=r"unique_ptr|shared_ptr|make_unique|make_shared|QObject|std::vector<std::unique",
@@ -269,6 +269,8 @@ def leaks_and_memory(proj):
         body = code_only(text)
         for r in LEAK_RULES:
             if fam not in r["fam"]:
+                continue
+            if r.get("skip_ext") and x in r["skip_ext"]:
                 continue
             if r.get("skip_if") and re.search(r["skip_if"], body):
                 continue
@@ -507,6 +509,8 @@ def unreferenced_files(proj):
             continue
         if x in ("html", "htm"):
             continue                              # pages are reached by URL, not by name from another file
+        if x in ("c", "cc", "cpp", "cxx", "m", "mm"):
+            continue                              # C/C++ source files are reached by the build (make, CMake globs), not by name
         refs = (names_in.get(base, set()) | names_in.get(stem, set())) - {rel}
         if refs:
             continue

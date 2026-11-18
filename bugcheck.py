@@ -223,6 +223,30 @@ RULES = {
     "sourcemap-public": ("idea", "your original source code is published with the site",
                          "this build setting puts source maps on the live website, so anyone can read your original code, comments included",
                          "turn them off for the live build, or use `hidden` maps that you upload to your error tracker only"),
+    # ---------------------------------------------------------------- C
+    "c-leak": ("decision", "memory that is never given back",
+               "the memory from malloc/calloc/strdup is not freed, returned or stored before the function ends, so every call loses it for good",
+               "call free() on it once you are done with it (before every return)"),
+    "c-leak-early-return": ("decision", "a return that forgets to free memory",
+                            "this way out of the function skips the free() the other ways out do, so the memory is lost each time it happens",
+                            "free it before this return too, or jump to one shared clean-up label (`goto fail;`)"),
+    "c-use-after-free": ("decision", "memory used after it was freed",
+                         "after free() the memory belongs to the system again and may already hold something else, so reading or writing it "
+                         "gives garbage or crashes, sometimes only on other machines",
+                         "use it before the free(), or keep what you need (for a list: save `next` first) and then free"),
+    "c-double-free": ("decision", "the same memory freed twice",
+                      "the second free() corrupts the memory manager: a crash or strange errors later, far from this line",
+                      "free it once; set the pointer to NULL right after free() if it can be freed again"),
+    "c-no-null-check": ("decision", "new memory used without checking it exists",
+                        "malloc/calloc/realloc/strdup give back NULL when no memory is left, and this line then writes through NULL and crashes",
+                        "check it first: `if (p == NULL) return ...;`"),
+    "c-sizeof-pointer": ("decision", "room for a pointer instead of the thing itself",
+                         "sizeof of a pointer is only 4 or 8 bytes, so the memory is too small for what is stored in it and writes run past the end",
+                         "use `sizeof(*p)` (the size of what p points to)"),
+    "c-realloc-self": ("decision", "a realloc that can lose the old memory",
+                       "when realloc fails it gives back NULL and the old memory stays where it was, but `p = realloc(p, n)` has just overwritten "
+                       "the only pointer to it: it can never be freed and p is now NULL",
+                       "put the result in a new variable first: `tmp = realloc(p, n); if (tmp == NULL) { ... } p = tmp;`"),
     # ---------------------------------------------------------------- HTML
     "html-duplicate-id": ("decision", "the same id twice on one page",
                           "an id must be unique; scripts and labels only ever find the first element", "give each element its own id"),
@@ -2675,13 +2699,492 @@ def deep_checks(texts, pages, files):
     return out
 
 # =================================================================================================== run
+# =================================================================================================== C
+C_ALLOCS = ("malloc", "calloc", "realloc", "strdup", "strndup")
+C_CTRL = {"if", "while", "for", "switch", "return", "sizeof", "else", "do", "case", "goto", "defined", "_Alignof", "alignof", "typeof"}
+# functions that only read or write INTO a buffer - passing a pointer to them never hands the memory over
+C_BORROW = {"memcpy", "memmove", "memset", "memcmp", "memchr", "strcpy", "strncpy", "strcat", "strncat", "strlen", "strnlen", "strcmp",
+            "strncmp", "strcasecmp", "strncasecmp", "strchr", "strrchr", "strstr", "strpbrk", "strspn", "strcspn", "strtok", "strtok_r",
+            "printf", "fprintf", "sprintf", "snprintf", "vsnprintf", "vsprintf", "puts", "fputs", "fwrite", "fread", "fgets", "sscanf",
+            "fscanf", "scanf", "read", "write", "recv", "send", "atoi", "atol", "atoll", "atof", "strtol", "strtoul", "strtoll", "strtoull",
+            "strtod", "strtof", "toupper", "tolower", "isalpha", "isdigit", "isspace", "isalnum", "perror", "qsort", "bsearch", "assert"}
+# of those, the ones whose result is a plain number (storing it never keeps the pointer)
+C_SCALAR = {"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp", "strncasecmp", "memcmp", "strspn", "strcspn", "printf", "fprintf",
+            "sprintf", "snprintf", "vsnprintf", "puts", "fputs", "fwrite", "fread", "sscanf", "fscanf", "read", "write", "recv", "send",
+            "atoi", "atol", "atoll", "atof", "strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof"}
+# writing through the FIRST argument of these is a dereference
+C_WRITES_ARG1 = {"memcpy", "memmove", "memset", "strcpy", "strncpy", "strcat", "strncat", "sprintf", "snprintf", "vsnprintf", "fgets",
+                 "fread", "read", "recv"}
+C_STOP = {"return", "goto", "break", "continue", "exit", "abort", "_exit", "longjmp", "siglongjmp", "__builtin_unreachable"}
+C_DECL = re.compile(r"(?:(?<=[;{}(,])|^)\s*((?:(?:const|static|volatile|register|struct|union|enum|unsigned|signed|long|short)\s+)*"
+                    r"([A-Za-z_]\w*)\s*(?:const\s*)?)(\*+)\s*(?:const\s+)?([A-Za-z_]\w*)\s*(?=[=;,)\[])", re.M)
+C_ALLOC_AT = re.compile(r"(?<![\w.>])([A-Za-z_]\w*)\s*=(?!=)\s*(?:\(\s*[\w\s]+\*+\s*\)\s*)?(%s)\s*\(" % "|".join(C_ALLOCS))
+C_SELF_REALLOC = re.compile(r"(?<![\w.>])([A-Za-z_][\w.\->\[\]]*?)\s*=(?!=)\s*(?:\(\s*[\w\s]+\*+\s*\)\s*)?realloc\s*\(\s*([^,;]+?)\s*,")
+C_FREE = re.compile(r"(?<![\w.>])free\s*\(\s*([A-Za-z_]\w*(?:\s*(?:->|\.)\s*[A-Za-z_]\w*)*)\s*\)\s*;")
+
+
+def _c_strip(text):
+    """Comments, the inside of strings / char literals and preprocessor lines blanked (positions and newlines kept)."""
+    out, i, n = list(text), 0, len(text)
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+    line_start = True
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            line_start, i = True, i + 1
+            continue
+        if line_start and c == "#":
+            j = i
+            while True:
+                e = text.find("\n", j)
+                e = n if e < 0 else e
+                if e > j and text[e - 1] == "\\" and e < n:
+                    j = e + 1
+                    continue
+                break
+            blank(i, e)
+            i = e
+            continue
+        if not c.isspace():
+            line_start = False
+        if text.startswith("//", i):
+            e = text.find("\n", i)
+            e = n if e < 0 else e
+            blank(i, e)
+            i = e
+        elif text.startswith("/*", i):
+            e = text.find("*/", i + 2)
+            e = n if e < 0 else e + 2
+            blank(i, e)
+            i = e
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c and text[j] != "\n":
+                j += 2 if text[j] == "\\" else 1
+            blank(i + 1, j)
+            i = j + 1
+        else:
+            i += 1
+    return "".join(out)
+
+
+def _c_match_open(s, j):
+    """s[j] is ')' - index of the matching '(' (or -1)."""
+    depth = 0
+    for k in range(j, -1, -1):
+        if s[k] == ")":
+            depth += 1
+        elif s[k] == "(":
+            depth -= 1
+            if depth == 0:
+                return k
+    return -1
+
+
+def _c_functions(s):
+    """[(name, params, body_start, body_end)] - body_start is the '{', body_end the matching '}'."""
+    out, i, n = [], 0, len(s)
+    while i < n:
+        if s[i] != "{":
+            i += 1
+            continue
+        close = _match_close(s, i)
+        k = i - 1
+        while k >= 0 and s[k].isspace():
+            k -= 1
+        if k >= 0 and s[k] == ")":
+            o = _c_match_open(s, k)
+            m = re.search(r"([A-Za-z_]\w*)\s*$", s[:o]) if o > 0 else None
+            if m and m.group(1) not in C_CTRL:
+                out.append((m.group(1), s[o + 1:k], i, close))
+                i = close + 1
+                continue
+        i += 1                                   # struct / extern "C" / initializer: look inside it
+    return out
+
+
+def _c_stmt_start(s, i, lo):
+    k = i - 1
+    while k >= lo and s[k] not in ";{}":
+        k -= 1
+    return k + 1
+
+
+def _c_enclosing_block(s, i, lo):
+    """Index of the innermost '{' (at or after lo) that is still open at i."""
+    depth = 0
+    for k in range(i - 1, lo - 1, -1):
+        if s[k] == "}":
+            depth += 1
+        elif s[k] == "{":
+            if depth == 0:
+                return k
+            depth -= 1
+    return lo
+
+
+def _c_guard(s, i, lo):
+    """The condition of the if/while that directly controls the statement at i ('' if none)."""
+    st = _c_stmt_start(s, i, lo)
+    pre = s[st:i]
+    m = re.search(r"\b(?:if|while)\s*\(", pre)
+    if m:
+        o = st + m.end() - 1
+        return s[o + 1:_match_close(s, o)]
+    b = _c_enclosing_block(s, i, lo)
+    k = b - 1
+    while k > lo and s[k].isspace():
+        k -= 1
+    if k > lo and s[k] == ")":
+        o = _c_match_open(s, k)
+        if o > 0 and re.search(r"\b(?:if|while)\s*$", s[:o]):
+            return s[o + 1:k]
+    return ""
+
+
+def _c_block_head(s, b, lo):
+    """Keyword in front of the block that opens at s[b] ('for', 'while', 'do', 'if', 'switch', 'else' or '')."""
+    k = b - 1
+    while k > lo and s[k].isspace():
+        k -= 1
+    if k > lo and s[k] == ")":
+        o = _c_match_open(s, k)
+        m = re.search(r"\b(for|while|if|switch)\s*$", s[lo:o]) if o > 0 else None
+        return m.group(1) if m else ""
+    m = re.search(r"\b(do|else)\s*$", s[lo:b])
+    return m.group(1) if m else ""
+
+
+def _c_null_test(cond, v):
+    v = re.escape(v)
+    return bool(re.search(r"!\s*%s\b(?!\s*(?:->|\.|\[))|\b%s\s*==\s*(?:NULL|0|nullptr)\b|\b(?:NULL|0)\s*==\s*%s\b" % (v, v, v), cond))
+
+
+def _c_call_of(s, i, lo):
+    """Name of the function whose argument list holds position i (None if not inside a call)."""
+    depth = 0
+    for k in range(i - 1, lo - 1, -1):
+        ch = s[k]
+        if ch in ")]":
+            depth += 1
+        elif ch in "([":
+            if depth == 0:
+                if ch == "[":
+                    return None
+                m = re.search(r"([A-Za-z_]\w*)\s*$", s[lo:k])
+                return m.group(1) if m else None
+            depth -= 1
+        elif ch in ";{}" and depth == 0:
+            return None
+    return None
+
+
+def _c_first_arg(s, i, lo):
+    """True if position i is the first argument of the call around it."""
+    k = i - 1
+    while k >= lo and s[k].isspace():
+        k -= 1
+    return k >= lo and s[k] == "("
+
+
+def _c_call_args_hold(s, i, j):
+    """The name at s[i:j] is a whole argument (not part of a bigger expression like p == NULL)."""
+    k = i - 1
+    while k >= 0 and s[k].isspace():
+        k -= 1
+    after = s[j:j + 2].lstrip()
+    return k >= 0 and s[k] in "(," and after[:1] in (",", ")")
+
+
+def _c_deref(s, i, j):
+    """The name at s[i:j] is dereferenced right here (p->x, p[i], *p)."""
+    after = s[j:j + 3].lstrip()
+    if after.startswith(("->", "[")):
+        return True
+    k = i - 1
+    while k >= 0 and s[k].isspace():
+        k -= 1
+    if k >= 0 and s[k] == "*":
+        k2 = k - 1
+        while k2 >= 0 and s[k2].isspace():
+            k2 -= 1
+        return k2 < 0 or s[k2] in "(=,;{}!&|+-?:" or s[max(0, k2 - 5):k2 + 1].endswith("return")
+    return False
+
+
+def _c_names(s, a, b, v):
+    return [(m.start(), m.end()) for m in re.finditer(r"(?<![\w.>])%s\b" % re.escape(v), s[a:b])]
+
+
+def _c_types(params, body):
+    """name -> (base type, number of *) for pointer variables declared in the parameters or the body."""
+    types, local = {}, {}
+    for part in params.split(","):
+        m = re.search(r"([A-Za-z_]\w*)\s*(?:const\s*)?(\*+)\s*(?:const\s+)?([A-Za-z_]\w*)\s*(\[\s*\])?\s*$", part.strip())
+        if m:
+            types[m.group(3)] = (m.group(1), len(m.group(2)) + bool(m.group(4)))
+    for m in C_DECL.finditer(body):
+        name = m.group(4)
+        if m.group(2) in C_CTRL or name in C_CTRL:
+            continue
+        types[name] = (m.group(2), len(m.group(3)))
+        local[name] = "static" in m.group(1)
+    return types, local
+
+
+def _c_macro_words(text):
+    """Every name used inside a #define (a macro may free or keep a pointer where the checks cannot see it)."""
+    words, cont = set(), False
+    for ln in text.split("\n"):
+        if cont or re.match(r"\s*#\s*define\b", ln):
+            words.update(re.findall(r"[A-Za-z_]\w*", ln))
+            cont = ln.rstrip().endswith("\\")
+    return words
+
+
+def _c_bails(s, cond_open, lo):
+    """The if (...) at cond_open gives up the program on NULL (abort/exit/assert or a handler with no way back)."""
+    c = _match_close(s, cond_open)
+    k = c + 1
+    while k < len(s) and s[k].isspace():
+        k += 1
+    stop = _match_close(s, k) if k < len(s) and s[k] == "{" else s.find(";", k)
+    body = s[k:stop + 1]
+    return not re.search(r"\b(?:return|goto|break|continue)\b", body)
+
+
+def check_c(rel, text):
+    out = []
+    s = _c_strip(text)
+    macro_words = _c_macro_words(text)
+    for fname, params, b0, b1 in _c_functions(s):
+        body = s[b0:b1 + 1]
+        types, local = _c_types(params, body)
+        lines_done = set()
+
+        def report(pos, kind, detail):
+            ln = _line(text, pos)
+            if (ln, kind) not in lines_done:
+                lines_done.add((ln, kind))
+                add(out, rel, ln, kind, detail)
+
+        # 6 - p = realloc(p, n): if realloc fails the only pointer to the old block is overwritten with NULL
+        for m in C_SELF_REALLOC.finditer(s, b0, b1):
+            if re.sub(r"\s+", "", m.group(1)) == re.sub(r"\s+", "", m.group(2)):
+                e = s.find(";", m.end())
+                nxt = re.match(r"\s*(?:(assert|g_assert|ASSERT)\b|(if)\s*\()", s[e + 1:b1]) if e > 0 else None
+                lhs = re.sub(r"\s+", "", m.group(1))
+                if nxt and nxt.group(2):
+                    o = e + 1 + nxt.end() - 1
+                    if not _c_null_test(re.sub(r"\s+", "", s[o + 1:_match_close(s, o)]), lhs):
+                        nxt = None
+                elif nxt and lhs not in re.sub(r"\s+", "", s[e + 1:s.find(";", e + 1)]):
+                    nxt = None
+                if nxt and (nxt.group(1) or _c_bails(s, e + 1 + nxt.end() - 1, b0)):
+                    continue                     # a failed realloc ends the program here, so nothing is left to leak
+                report(m.start(1), "c-realloc-self", "`%s = realloc(%s, ...)` loses the old memory when realloc fails"
+                       % (m.group(1).strip(), m.group(2).strip()))
+
+        for m in C_ALLOC_AT.finditer(s, b0, b1):
+            v, fn = m.group(1), m.group(2)
+            if v in C_CTRL:
+                continue
+            pre = s[_c_stmt_start(s, m.start(1), b0):m.start(1)].strip()
+            if pre.endswith("*") and not re.search(r"[A-Za-z_]\w*\s*\*+$", pre):
+                continue                         # *out = malloc(...): the result goes to the caller, not to a local
+            call_open = m.end() - 1
+            call_close = _match_close(s, call_open)
+            args = s[call_open + 1:call_close]
+            # 5 - malloc(sizeof(p)) / malloc(sizeof(T *)) for a T *p: only room for a pointer, not for what it points to
+            if fn in ("malloc", "calloc", "realloc") and v in types and types[v][1] == 1 and types[v][0] != "void":
+                sm = re.search(r"\bsizeof\s*(?:\(\s*%s\s*\)|\s%s\b(?!\s*(?:->|\.|\[)))" % (re.escape(v), re.escape(v)), args)
+                tm = re.search(r"\bsizeof\s*\(\s*(?:const\s+)?(?:struct\s+|union\s+|enum\s+)?([A-Za-z_]\w*)\s*(\*+)\s*\)", args)
+                if sm:
+                    report(call_open + 1 + sm.start(), "c-sizeof-pointer",
+                           "`sizeof(%s)` is the size of the pointer, not of the %s it points to" % (v, types[v][0]))
+                elif tm and len(tm.group(2)) == 1 and tm.group(1) == types[v][0]:
+                    report(call_open + 1 + tm.start(), "c-sizeof-pointer",
+                           "`%s` is the size of a pointer, but `%s` points to a whole %s" % (tm.group(0), v, types[v][0]))
+            self_realloc = fn == "realloc" and re.sub(r"\s+", "", args.split(",")[0]) == v
+            end = s.find(";", call_close)
+            end = b1 if end < 0 or end > b1 else end
+            uses = [(b0 + a, b0 + e) for a, e in _c_names(s, b0, b1 + 1, v) if b0 + a > end]
+            # 4 - the first thing done with the new memory dereferences it, with no check that the allocation worked
+            wrapped = s[call_close + 1:call_close + 4].lstrip().startswith(")")
+            if uses and not wrapped and not self_realloc:
+                i, j = uses[0]
+                call = _c_call_of(s, i, b0)
+                if _c_deref(s, i, j) or (call in C_WRITES_ARG1 and _c_first_arg(s, i, b0)):
+                    report(i, "c-no-null-check", "`%s` comes from %s() and is used here before checking it is not NULL" % (v, fn))
+            # 1 - a local block that is never freed, returned or handed on
+            if v not in local or local[v] or self_realloc or v in macro_words:
+                continue
+            escaped, handed, names, k = False, False, [v], 0
+            while k < len(names) and not escaped:
+                w = names[k]
+                k += 1
+                for a, e in _c_names(s, b0, b1 + 1, w):
+                    a, e = b0 + a, b0 + e
+                    st = _c_stmt_start(s, a, b0)
+                    stmt_end = s.find(";", a)
+                    stmt = s[st:stmt_end if stmt_end > 0 else b1]
+                    if re.match(r"\s*return\b", stmt) or s[max(b0, a - 2):a].rstrip().endswith("&"):
+                        escaped = True
+                        break
+                    am = re.search(r"(?<![=!<>+\-*/%&|^])=(?!=)", stmt)
+                    if am and st + am.end() <= a:
+                        lhs = stmt[:am.start()].strip()
+                        if not re.fullmatch(r"(?:[\w\s]*\*+\s*)?%s" % re.escape(w), lhs):
+                            rhs = stmt[am.end():].strip()
+                            al = re.search(r"(?:^|[(,]\s*)(?:[\w\s]*\*+\s*)?([A-Za-z_]\w*)$", lhs)
+                            if al and al.group(1) in local and not local[al.group(1)] and not re.search(r"->|\.|\[", lhs) and \
+                                    re.fullmatch(r"(?:\([\w\s*]+\)\s*)?%s(?:\s*[+-]\s*[\w\s]+)?" % re.escape(w), rhs):
+                                if al.group(1) not in names:   # q = p: a second name for the same memory, follow it too
+                                    names.append(al.group(1))
+                                continue
+                            if _c_call_of(s, a, st) not in C_BORROW:   # x = p, s->buf = p, x = keep(p): someone else holds it now
+                                escaped = True
+                                break
+                    call = _c_call_of(s, a, b0)
+                    if call and call != "free" and call not in C_BORROW and call not in C_CTRL:
+                        handed = True
+            if escaped:
+                continue
+            frees = [b0 + f.start() for f in re.finditer(r"(?<![\w.>])free\s*\(\s*(?:%s)\s*\)" % "|".join(map(re.escape, names)), s[b0:b1])]
+            if not frees:
+                if not handed:
+                    report(m.start(), "c-leak", "`%s` gets memory from %s() but it is never freed, returned or stored anywhere" % (v, fn))
+                continue
+            blk = _c_enclosing_block(s, m.start(), b0)
+            blk_end = _match_close(s, blk)
+            blk_loop = _c_block_head(s, blk, b0) in ("for", "while", "do")
+            for r in re.finditer(r"(?<![\w.])(return|continue)\b", s[end:blk_end]):
+                kw, r = r.group(1), end + r.start()
+                if any(m.start() < f < r for f in frees) or _c_null_test(_c_guard(s, r, b0), v):
+                    continue
+                if kw == "continue":
+                    if not blk_loop:
+                        continue
+                    inner, nested = _c_enclosing_block(s, r, b0), False
+                    while inner > blk:               # a continue of a loop inside this one does not leave this block
+                        if _c_block_head(s, inner, b0) in ("for", "while", "do"):
+                            nested = True
+                            break
+                        inner = _c_enclosing_block(s, inner, b0)
+                    if nested:
+                        continue
+                report(r, "c-leak-early-return", "this %s leaves `%s` (from %s() above) without freeing it" % (kw, v, fn))
+
+        # 2 + 3 - using or freeing memory again after free(p) / free(s->buf)
+        for fm in C_FREE.finditer(s, b0, b1):
+            v = re.sub(r"\s+", "", fm.group(1))
+            parts = re.split(r"->|\.", v)
+            base = parts[0]
+            seps = re.findall(r"->|\.", v)
+            path_re = re.compile(re.escape(parts[0]) + "".join(r"\s*%s\s*%s" % (re.escape(sp), re.escape(p)) for sp, p in zip(seps, parts[1:]))
+                                 + r"\b(?!\s*(?:->|\.)\s*\w)" if len(parts) > 1 else re.escape(v) + r"\b")
+            st = _c_stmt_start(s, fm.start(), b0)
+            if ")" in s[st:fm.start()] or re.search(r"\belse\s*$", s[st:fm.start()]):
+                continue                         # the only statement of an if / loop: freed on one path only
+            i, depth = fm.end(), 0
+            if s[i:i + 20].lstrip().startswith("else"):
+                continue
+            while i < b1:
+                ch = s[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif ch.isalpha() or ch == "_":
+                    w = re.match(r"[A-Za-z_]\w*", s[i:]).group(0)
+                    prev = s[i - 1] if i else ""
+                    if prev in ".>" or prev.isalnum() or prev == "_":
+                        i += len(w)
+                        continue
+                    if w in C_STOP and depth == 0:
+                        if w != "break":
+                            break
+                        blk, head = _c_enclosing_block(s, i, b0), ""
+                        while blk > b0:              # break: the path goes on after the loop / switch it leaves
+                            head = _c_block_head(s, blk, b0)
+                            if head in ("for", "while", "do", "switch"):
+                                break
+                            blk = _c_enclosing_block(s, blk, b0)
+                        if blk <= b0 or head not in ("for", "while", "do", "switch"):
+                            break
+                        i = _match_close(s, blk) + 1
+                        if head == "do":
+                            semi = s.find(";", i)
+                            i = semi + 1 if semi > 0 else b1
+                        continue
+                    if w == "sizeof":
+                        p = s.find("(", i)
+                        if p >= 0 and not s[i + 6:p].strip():
+                            i = _match_close(s, p) + 1
+                            continue
+                    if w == base:
+                        pm = path_re.match(s, i)
+                        j = pm.end() if pm else i + len(w)
+                        after = s[j:j + 3].lstrip()
+                        if after.startswith("=") and not after.startswith("=="):
+                            break                # given a new value
+                        if s[max(b0, i - 2):i].rstrip().endswith("&"):
+                            break                # address handed out: anything can change it
+                        call = _c_call_of(s, i, b0)
+                        if not pm:
+                            if call and call not in C_CTRL and call not in C_BORROW and call != "free":
+                                break            # the owner is handed to a function that may set a new value
+                            i = j
+                            continue
+                        if call == "free" and re.match(r"\s*\)", s[j:]):
+                            report(i, "c-double-free", "`%s` was already freed above (line %d)" % (v, _line(text, fm.start())))
+                            break
+                        if _c_deref(s, i, j) or (call in C_BORROW and _c_call_args_hold(s, i, j)):
+                            report(i, "c-use-after-free", "`%s` is used here after free(%s) on line %d" % (v, v, _line(text, fm.start())))
+                            break
+                        if call and call not in C_CTRL:
+                            break                # handed to another function: cannot tell what it does with it
+                        i = j
+                        continue
+                    i += len(w)
+                    continue
+                i += 1
+
+        # 2 - for (n = head; n; n = n->next) free(n);  - the step reads n after it was freed
+        for lm in re.finditer(r"\bfor\s*\(", s[b0:b1]):
+            o = b0 + lm.end() - 1
+            c = _match_close(s, o)
+            parts = s[o + 1:c].split(";")
+            if len(parts) != 3:
+                continue
+            sm = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*=\s*\1\s*->\s*\w+\s*", parts[2])
+            if not sm:
+                continue
+            v = sm.group(1)
+            k = c + 1
+            while k < b1 and s[k].isspace():
+                k += 1
+            stop = _match_close(s, k) if s[k] == "{" else s.find(";", k)
+            if re.search(r"(?<![\w.>])free\s*\(\s*%s\s*\)" % re.escape(v), s[k:stop + 1]):
+                report(b0 + lm.start(), "c-use-after-free",
+                       "the loop frees `%s`, then its step `%s` reads the memory it just freed" % (v, parts[2].strip()))
+    return out
+
+
+
 def check(root):
     project = dedupe.Project(root)
     files = set(project.files)
     texts, found, pages = {}, [], {}
     for rel, size in project.files.items():
         ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
-        if ext not in ("py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "html", "htm", "css", "json", "md", "markdown", "vue", "svelte") \
+        if ext not in ("py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "html", "htm", "css", "json", "md", "markdown", "vue", "svelte", "c", "h") \
                 or size > MAX_SIZE or rel.endswith((".min.js", ".min.css", ".d.ts")) or posixpath.basename(rel) in ("package-lock.json",):
             continue
         try:
@@ -2707,6 +3210,8 @@ def check(root):
                 found += check_json(rel, text, project.root, files)
             elif ext in ("md", "markdown"):
                 found += check_md(rel, text, files, slugs_of)
+            elif ext in ("c", "h") and not test:
+                found += check_c(rel, text)
         except Exception as e:                      # one odd file must never stop the whole check
             print("  (skipped %s: %s)" % (rel, type(e).__name__))
             continue
