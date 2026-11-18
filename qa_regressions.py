@@ -42,6 +42,12 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      `return fetch(...)` (the caller handles errors) called unhandled.
      Still found: a real missing file and a real broken tag in a normal page, `name.trim();` doing nothing, a sentence
      that really stops on "the", and a repeated word in real text.
+  9. Keycloak: `onSubmit={handleSubmit(save)}` (react-hook-form returns the handler) raised 100 times as a handler that
+     runs immediately; a heading underlined with ----- not seen, so its #anchor looked broken; `return function
+     cancelTimeout()` called never used; `await fetch` in an async function that returns its result called unhandled;
+     localhost in the dev server's own start script.
+     Still found: `onClick={save()}`, a link to a heading that really is missing, a function nobody uses, an awaited
+     fetch whose error nobody gets, localhost in app code - and Keycloak's real `.forEach(async ...)`.
 """
 import base64
 import json
@@ -408,6 +414,87 @@ def main():
         check("`name.trim();` doing nothing is still found", bool(kinds("js-no-effect")), str(sorted({e.get('kind') for e in got})))
         check("a sentence that really stops on 'the' is still found", bool(kinds("ends-mid-thought")), str(sorted({e.get('kind') for e in got})))
         check("a repeated word in real text is still found", bool(kinds("repeated-word")), str(sorted({e.get('kind') for e in got})))
+
+        print("Case: Keycloak (what was wrongly reported)")
+        kc = tmp / "keycloak-like"
+        (kc / "src").mkdir(parents=True)
+        (kc / "scripts").mkdir()
+        (kc / "package.json").write_text(json.dumps({"name": "admin-ui", "private": True, "type": "module"}) + "\n", encoding="utf-8")
+        (kc / "src" / "RealmForm.tsx").write_text(
+            "import { useForm } from 'react-hook-form';\n\n"
+            "export function RealmForm({ save }: { save: (v: unknown) => void }) {\n"
+            "  const { handleSubmit, register } = useForm();\n"
+            "  const form = useForm();\n"
+            "  return (\n"
+            "    <>\n"
+            "      <form onSubmit={handleSubmit(save)}>\n"
+            "        <input {...register('name')} />\n"
+            "      </form>\n"
+            "      <form onSubmit={form.handleSubmit(save)} />\n"
+            "    </>\n"
+            "  );\n"
+            "}\n", encoding="utf-8")
+        (kc / "src" / "useSetTimeout.ts").write_text(
+            "export function useSetTimeout() {\n"
+            "  return (callback: () => void, delay: number) => {\n"
+            "    const timer = setTimeout(callback, delay);\n"
+            "    return function cancelTimeout() {\n"
+            "      clearTimeout(timer);\n"
+            "    };\n"
+            "  };\n"
+            "}\n", encoding="utf-8")
+        (kc / "src" / "fetchContent.ts").write_text(
+            "export default async function fetchContentJson(url: string): Promise<unknown> {\n"
+            "  const response = await fetch(url + '/content.json');\n"
+            "  return await response.json();\n"
+            "}\n", encoding="utf-8")
+        (kc / "scripts" / "start-server.js").write_text(
+            "const ADMIN_URL = 'http://localhost:5173';\nconsole.info('Admin console on ' + ADMIN_URL);\n", encoding="utf-8")
+        (kc / "TESTS.md").write_text(
+            "# Tests\n\nKeycloak server\n---------------\n\nStart the server first.\n\n"
+            "Testing mail\n------------\n\nNeeds the Keycloak server running (see [Keycloak server](#keycloak-server) above).\n",
+            encoding="utf-8")
+        got = scan(kc)
+        check("onSubmit={handleSubmit(save)} is not a handler that runs immediately", not kinds("js-handler-called"), str(kinds("js-handler-called")))
+        check("a heading underlined with ----- has its #anchor", not kinds("md-broken-anchor"), str(kinds("md-broken-anchor")))
+        check("`return function cancelTimeout()` is not dead code", not [e for e in got if e.get("kind") == "dead-code" and "cancelTimeout" in (e.get("what") or "")],
+              str([e.get("what") for e in got if e.get("kind") == "dead-code"]))
+        check("an awaited fetch whose result is returned hands errors to the caller", not kinds("no-error-handling"), str(kinds("no-error-handling")))
+        check("localhost in the dev server's start script is fine", not kinds("localhost-left"), str(kinds("localhost-left")))
+
+        print("Case: the same shapes, but real problems")
+        rk = tmp / "real-admin"
+        (rk / "src").mkdir(parents=True)
+        (rk / "package.json").write_text(json.dumps({"name": "shop-admin", "private": True, "type": "module"}) + "\n", encoding="utf-8")
+        (rk / "src" / "Save.tsx").write_text(
+            "export function Save({ save }: { save: () => void }) {\n"
+            "  return <button onClick={save()}>Save</button>;\n"
+            "}\n", encoding="utf-8")
+        (rk / "src" / "groups.ts").write_text(
+            "import { api } from './api';\n\n"
+            "export async function addGroups(ids: string[]): Promise<void> {\n"
+            "  ids.forEach(async (id) => {\n"
+            "    await api.addToGroup(id);\n"
+            "  });\n"
+            "}\n\n"
+            "export async function showItems(show: (x: unknown) => void) {\n"
+            "  const r = await fetch('/api/items');\n"
+            "  show(await r.json());\n"
+            "}\n\n"
+            "export const API = 'http://localhost:8080/api';\n\n"
+            "function formatOldPrice(n: number) {\n"
+            "  return n.toFixed(2);\n"
+            "}\n", encoding="utf-8")
+        (rk / "src" / "api.ts").write_text("export const api = { addToGroup: async (id: string) => id };\n", encoding="utf-8")
+        (rk / "README.md").write_text("# Admin\n\nSee [Setup](#setup) first.\n\nUsage\n-----\n\nRun it.\n", encoding="utf-8")
+        got = scan(rk)
+        check("onClick={save()} is still found", bool(kinds("js-handler-called")), str(sorted({e.get('kind') for e in got})))
+        check("a link to a heading that really is missing is still found", bool(kinds("md-broken-anchor")), str(sorted({e.get('kind') for e in got})))
+        check("a function nobody uses is still found",
+              any(e.get("kind") == "dead-code" and "formatOldPrice" in (e.get("what") or "") for e in got), str(sorted({e.get('kind') for e in got})))
+        check("an awaited fetch whose error nobody gets is still found", bool(kinds("no-error-handling")), str(sorted({e.get('kind') for e in got})))
+        check("localhost in app code is still found", bool(kinds("localhost-left")), str(sorted({e.get('kind') for e in got})))
+        check("Keycloak's real `.forEach(async ...)` is still found", bool(kinds("js-foreach-async")), str(sorted({e.get('kind') for e in got})))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

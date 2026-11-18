@@ -1057,7 +1057,7 @@ JS_TYPOS = {"lenght": "length", "lengh": "length", "legnth": "length", "lenth": 
 NO_EFFECT_JS = {"trim", "trimStart", "trimEnd", "toUpperCase", "toLowerCase", "toLocaleUpperCase", "toLocaleLowerCase",
                 "replace", "replaceAll", "slice", "concat", "filter", "substring", "substr", "padStart", "padEnd",
                 "repeat", "toFixed", "split", "flat", "toSorted", "toReversed"}
-HANDLER_FACTORY = re.compile(r"(bind|debounce|throttle|memo|Handler|^make|^create|^get|^use|^curry|^on[A-Z]|Callback)", re.I)
+HANDLER_FACTORY = re.compile(r"(bind|debounce|throttle|memo|Handler|^make|^create|^get|^use|^curry|^on[A-Z]|Callback|^handleSubmit$)", re.I)
 
 
 def _line(text, off):
@@ -2431,6 +2431,10 @@ def _md_parts(text):
         clean = re.sub(r"`[^`\n]*`", lambda m: " " * len(m.group(0)), ln)
         out.append(clean)
         hm = re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", ln)
+        prev = lines[i - 1] if i else ""
+        if not hm and re.match(r"^ {0,3}(=+|-+)\s*$", ln) and prev.strip() and out[-2:-1] != [""] and \
+                not re.match(r"^ {0,3}([-*+]\s|\d+[.)]\s|#|>|\||(=+|-+)\s*$)", prev):
+            hm = re.match(r"\s*(.+?)\s*$", prev)          # "Keycloak server" + a line of ----- under it = a heading
         if hm:
             s = _slug(hm.group(1))
             n = counts.get(s, 0)

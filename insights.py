@@ -396,6 +396,9 @@ def dead_code(proj):
                     continue
                 if proj.tokens[name] != 1:
                     continue
+                if fam == "js" and re.search(r"(?:\breturn|[=:(,?]|=>)\s*(?:async\s+)?$", text[max(0, m.start() - 40):m.start()]) \
+                        and re.match(r"(?:async\s+)?function\b", text[m.start():m.start() + 20]):
+                    continue                                       # a named function expression: it is used right there
                 ln = line_of(text, m.start())
                 defline = lines[ln - 1] if ln - 1 < len(lines) else ""
                 prev = lines[ln - 2].strip() if ln >= 2 else ""
