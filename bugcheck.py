@@ -291,6 +291,29 @@ RULES = {
                                  "this way out of the function skips the fclose() the other ways out do, so the file stays open (and anything "
                                  "written may not be saved)",
                                  "close it before this return too, or jump to one shared clean-up label"),
+    "c-debug-print": ("idea", "debugging prints left in the code",
+                      "prints like `printf(\"here\\n\")` were written while hunting a bug and now show up for every user",
+                      "remove them, or keep them only inside `#ifdef DEBUG ... #endif`"),
+    "c-pause-left": ("decision", "a \"press any key\" pause left in the program",
+                     "`system(\"pause\")` and a bare `getch();` only keep a console window open while testing; for anyone else the program "
+                     "stops and waits, `system` starts a whole command shell, and `pause` does not even exist outside Windows",
+                     "remove it (run the program from a terminal instead), or keep it only inside `#ifdef DEBUG`"),
+    "c-assert-side-effect": ("decision", "real work hidden inside assert()",
+                             "assert() is removed completely when the program is built for release (with NDEBUG), so whatever the "
+                             "line DOES - read the file, take the lock, move the counter - disappears with it",
+                             "do the work on its own line, then check the result: `size_t got = fread(...); assert(got == n);`"),
+    "c-assert-check": ("decision", "assert used as the only check that something worked",
+                       "malloc, fopen and getenv can fail on any user's machine, but assert is removed in release builds, so there "
+                       "the failure is not caught at all",
+                       "check it with an if: `if (p == NULL) { ... return -1; }` (keep assert for things that can never happen)"),
+    "c-no-include-guard": ("decision", "a header pulled in twice, with no include guard",
+                           "a source file includes this header two times (directly or through other headers), so its struct / typedef "
+                           "is defined twice and the build fails with confusing 'redefinition' errors",
+                           "wrap the whole header in `#ifndef NAME_H` / `#define NAME_H` ... `#endif` (or add `#pragma once` at the top)"),
+    "c-include-guard-maybe": ("idea", "a header without an include guard",
+                              "another header includes this one, so any file that includes both gets its struct / typedef twice and "
+                              "stops compiling - one #include away from breaking",
+                              "wrap the whole header in `#ifndef NAME_H` / `#define NAME_H` ... `#endif` (or add `#pragma once` at the top)"),
     "c-fallthrough-maybe": ("idea", "a switch case that runs into the next one",
                             "there is no `break` at the end of this case, so the next case's lines run too; that can be meant, but then "
                             "C programmers mark it so readers (and the compiler) know",
@@ -3593,8 +3616,117 @@ def _c_macro_checks(text, report):
                        % (p, name, call, pasted[:70]))
                 break
 
+C_PURE_CALL = re.compile(r"^(?:strlen|strnlen|strcmp|strncmp|strcasecmp|memcmp|strchr|strrchr|strstr|abs|labs|llabs|fabs|isalpha|isdigit|"
+                         r"isalnum|isspace|isupper|islower|isprint|isxdigit|offsetof|sizeof|_Alignof|alignof|is_\w+|has_\w+|\w*_is_\w+|"
+                         r"\w*valid\w*|\w*_count|\w*_len|\w*_size|\w*empty\w*|[A-Z][A-Z0-9_]*)$")
+C_DOING_CALL = re.compile(r"(?i)^(?:f(?:read|write|open|close|seek|flush|gets|puts|printf|scanf)|read|write|open|close|printf|scanf|puts|"
+                          r"gets|malloc|calloc|realloc|free|strdup|remove|rename|unlink|mkdir|rmdir|chdir|system|exec[lv]p?e?|fork|send|"
+                          r"recv|connect|bind|listen|accept|pthread_(?:mutex|rwlock|spin)_\w*lock|pthread_(?:create|join|once)|sem_(?:wait|post)|"
+                          r"(?:init|save|write|send|push|pop|insert|remove|delete|create|destroy|alloc|lock|unlock|register|flush|append)_\w+|"
+                          r"\w+_(?:init|save|write|send|push|pop|insert|remove|delete|create|destroy|alloc|lock|unlock|register|flush|append))$")
 
-def check_c(rel, text):
+
+def _c_pp_regions(text):
+    """[(start offset, end offset, condition)] of every #if / #ifdef / #ifndef block (an #else turns it into 'not cond')."""
+    out, stack, pos = [], [], 0
+    for ln in text.split("\n"):
+        m = re.match(r"\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)", ln)
+        if m:
+            kw, cond = m.group(1), m.group(2).strip()
+            if kw in ("if", "ifdef", "ifndef"):
+                stack.append([pos, ("!" if kw == "ifndef" else "") + cond])
+            elif kw in ("elif", "else") and stack:
+                start, c = stack.pop()
+                out.append((start, pos, c))
+                stack.append([pos, ("!(%s)" % c) if kw == "else" else cond])
+            elif kw == "endif" and stack:
+                start, c = stack.pop()
+                out.append((start, pos, c))
+        pos += len(ln) + 1
+    for start, c in stack:
+        out.append((start, len(text), c))
+    return out
+
+
+DEBUG_WORD = re.compile(r"(?i)\b\w*(?:debug|verbose|trace|dbg|devel|testing|dump|log)\w*\b")
+
+
+def _c_leftover_checks(rel, text, s, funcs, out, assert_always_on=False):
+    regions = _c_pp_regions(text)
+
+    def debug_only(pos):
+        return any(a <= pos < b and DEBUG_WORD.search(c) and not c.startswith("!") for a, b, c in regions)
+    # 19 - printf("here") / puts("test") left from bug hunting
+    hits = []
+    for m in re.finditer(r"(?<![\w.>])(printf|puts|fprintf|fputs)\s*\(", s):
+        o = m.end() - 1
+        args = _c_args(s, o)
+        fi = {"printf": 0, "puts": 0, "fprintf": 1, "fputs": 0}[m.group(1)]
+        if fi >= len(args):
+            continue
+        msg = _c_literal(text, *args[fi])
+        if msg is None:
+            continue
+        msg = re.sub(r"\\[nrt]", " ", msg).strip()
+        if not (LEFTOVER_MSG.match(msg) or re.match(r"(?i)^(?:debug|dbg)\s*[:>\]-]", msg) or re.match(r"(?i)^(?:here|reached|got here)\b", msg)):
+            continue
+        if debug_only(m.start()) or DEBUG_GUARD.search(s[max(0, s.rfind("\n", 0, max(0, s.rfind("\n", 0, m.start()) - 1))):m.start()]):
+            continue
+        if len(args) > fi + 1 and not re.match(r"(?i)\s*(here|debug|dbg|reached)", msg):
+            continue                             # printf("%d", x) - a real output line, not a "here" marker
+        hits.append(m)
+    if hits:
+        add(out, rel, _line(text, hits[0].start()), "c-debug-print",
+            "%d debugging print%s like `%s` (first here)" % (len(hits), "" if len(hits) == 1 else "s",
+                                                           re.sub(r"\s+", " ", text[hits[0].start():_match_close(s, hits[0].end() - 1) + 1])[:40]))
+    # 19 - system("pause") / getch(); only there to keep the window open
+    for m in re.finditer(r"(?<![\w.>])system\s*\(", s):
+        args = _c_args(s, m.end() - 1)
+        lit = _c_literal(text, *args[0]) if args else None
+        if lit is not None and lit.strip().lower() == "pause" and not debug_only(m.start()):
+            add(out, rel, _line(text, m.start()), "c-pause-left",
+                "`system(\"%s\")` - waits for a key on Windows only; elsewhere it prints an error, and it runs a whole shell to do it" % lit)
+    for m in re.finditer(r"(?<=[;{}])\s*(_?getch|getche)\s*\(\s*\)\s*;", s):
+        if not debug_only(m.start()):
+            add(out, rel, _line(text, m.start(1)), "c-pause-left",
+                "`%s();` with its key thrown away - only there to keep the console window open" % m.group(1))
+    for fname, params, b0, b1 in funcs:
+        if fname != "main":
+            continue
+        m = re.search(r"(?<=[;{}])\s*(getchar)\s*\(\s*\)\s*;\s*return\b[^;]*;\s*$", s[b0 + 1:b1])
+        if m and not debug_only(b0 + 1 + m.start(1)):
+            add(out, rel, _line(text, b0 + 1 + m.start(1)), "c-pause-left",
+                "`getchar();` right before main() ends - only there to keep the console window open")
+    # 20 - assert(...) doing real work, or used as the only check of something that can fail at run time
+    for fname, params, b0, b1 in (() if assert_always_on or re.search(r"(?m)^\s*#\s*define\s+assert\s*\(", text) else funcs):
+        for m in re.finditer(r"(?<![\w.>])assert\s*\(", s[b0:b1]):
+            o = b0 + m.end() - 1
+            c = _match_close(s, o)
+            expr = s[o + 1:c]
+            if re.fullmatch(r"\s*(?:0|false|!\s*\"?.*|1)\s*", text[o + 1:c]) or re.match(r'\s*!?\s*"', text[o + 1:c]):
+                continue                         # assert(0) / assert(!"unreachable"): a marker, not a check
+            top = expr
+            side = re.search(r"(?<![=!<>])=(?!=)|\+\+|--|[-+*/%&|^]=", top)
+            calls = [cm.group(1) for cm in re.finditer(r"(?<![\w.>])([A-Za-z_]\w*)\s*\(", expr) if cm.group(1) not in C_CTRL]
+            doing = [n for n in calls if not C_PURE_CALL.match(n) and C_DOING_CALL.match(n)]
+            if side or doing:
+                what = ("`%s(...)`" % doing[0]) if doing else "`%s`" % re.sub(r"\s+", " ", text[o + 1:c]).strip()[:40]
+                add(out, rel, _line(text, m.start() + b0), "c-assert-side-effect",
+                    "%s is inside assert(), so a release build (with NDEBUG) skips the work itself, not just the check" % what)
+                continue
+            name = re.fullmatch(r"\s*(?:!\s*)?\(?\s*([A-Za-z_]\w*)\s*(?:!=\s*(?:NULL|0|nullptr)\s*)?\)?\s*", expr)
+            if not name:
+                continue
+            v = name.group(1)
+            src = list(re.finditer(r"(?<![\w.>])%s\s*=(?!=)\s*(?:\([^()]*\)\s*)?(malloc|calloc|realloc|strdup|strndup|fopen|fdopen|tmpfile|"
+                                   r"getenv|opendir|popen)\s*\(" % re.escape(v), s[b0:b0 + m.start()]))
+            if src:
+                add(out, rel, _line(text, m.start() + b0), "c-assert-check",
+                    "`assert(%s)` is the only check that %s() worked; a release build (with NDEBUG) removes it, so a failure "
+                    "crashes later instead" % (re.sub(r"\s+", " ", expr).strip()[:30], src[-1].group(1)))
+
+
+def check_c(rel, text, assert_always_on=False):
     out = []
     s = _c_strip(text)
     macro_words = _c_macro_words(text)
@@ -3860,8 +3992,99 @@ def check_c(rel, text):
         _c_logic_checks(s, text, b0, b1, params, report, macro_words, paste_macros, noreturn_fns)
     # 17 - macro parameters without brackets
     _c_macro_checks(text, lambda pos, kind, detail: add(out, rel, _line(text, pos), kind, detail))
+    # 19 - 21: debugging leftovers, assert doing real work, headers without include guards
+    _c_leftover_checks(rel, text, s, funcs, out, assert_always_on)
     return out
 
+
+
+def _c_guarded(text):
+    head = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.S)
+    if re.search(r"(?m)^\s*#\s*pragma\s+once\b", head):
+        return True
+    top = head[:max(2000, len(head) * 2 // 5)]
+    for m in re.finditer(r"(?m)^\s*#\s*(?:ifndef\s+(\w+)|if\s+!\s*defined\s*\(?\s*(\w+)\s*\)?)\s*$", top):
+        if re.search(r"(?m)^\s*#\s*define\s+%s\b" % re.escape(m.group(1) or m.group(2)), head[m.end():m.end() + 300]):
+            return True
+    return False
+
+
+def c_include_guards(texts):
+    """21 - headers with no include guard. Proven (decision) when some .c file really pulls the header in twice;
+    a warning-to-check (idea) when it is included from another header, so pulling it in twice is one #include away."""
+    from collections import defaultdict
+    out = []
+    heads = {r: t for r, t in texts.items() if r.lower().endswith(".h") and not TEST_PATH.search(r)}
+    if not heads:
+        return out
+    by_base = defaultdict(list)
+    for r in texts:
+        if r.lower().endswith((".h", ".c")):
+            by_base[posixpath.basename(r)].append(r)
+    incs = {}
+    for r, t in texts.items():
+        if r.lower().endswith((".h", ".c")):
+            lst = []
+            regions = _c_pp_regions(t)
+            gm = re.search(r"(?m)^\s*#\s*ifndef\s+(\w+)", t)
+            own = gm.group(1) if gm and _c_guarded(t) else None
+            for m in re.finditer(r'(?m)^[ \t]*#[ \t]*include[ \t]*"([^"]+)"', t):
+                if any(a <= m.start() < b and c != "!" + (own or "") for a, b, c in regions):
+                    continue                     # only on some platforms / settings: cannot tell if both copies are pulled in
+                p = posixpath.normpath(posixpath.join(posixpath.dirname(r), m.group(1)))
+                if p in texts:
+                    lst.append(p)
+                elif len(by_base.get(posixpath.basename(m.group(1)), [])) == 1:
+                    lst.append(by_base[posixpath.basename(m.group(1))][0])
+            incs[r] = lst
+    unguarded = {}
+    for r, t in heads.items():
+        if _c_guarded(t):
+            continue
+        s = _c_strip(t)
+        regions = _c_pp_regions(t)
+        dm = next((d for d in re.finditer(r"(?m)^[ \t]*(?:typedef\b|(?:struct|union|enum)\s+\w*\s*\{|(?:static\s+)?inline\b[^;]*\)\s*\{)", s)
+                   if not any(a <= d.start() < b for a, b, _ in regions)), None)
+        if dm:                                   # (definitions inside #if blocks: a header made to be included in different modes)
+            unguarded[r] = re.sub(r"\s+", " ", t[dm.start():dm.start() + 40]).strip().split("{")[0].strip()[:40]
+    nog_dir, all_dir = defaultdict(int), defaultdict(int)
+    for r, t in heads.items():
+        all_dir[posixpath.dirname(r)] += 1
+        nog_dir[posixpath.dirname(r)] += not _c_guarded(t)
+    unguarded = {r: w for r, w in unguarded.items()
+                 if not (all_dir[posixpath.dirname(r)] >= 4 and nog_dir[posixpath.dirname(r)] * 2 > all_dir[posixpath.dirname(r)])}
+    if not unguarded:
+        return out                               # most headers in that folder have no guard: each is included once, on purpose
+    twice = {}
+    for c in (r for r in texts if r.lower().endswith(".c") and not TEST_PATH.search(r)):
+        counts, seen = defaultdict(int), set()
+
+        def walk(f, depth):
+            for h in incs.get(f, ()):
+                if h in unguarded:
+                    counts[h] += 1
+                elif h in seen:
+                    continue
+                else:
+                    seen.add(h)
+                if depth < 30:
+                    walk(h, depth + 1)
+        walk(c, 0)
+        for h, n in counts.items():
+            if n > 1:
+                twice.setdefault(h, c)
+    from_header = {h for f, lst in incs.items() if f.lower().endswith(".h") for h in lst if h in unguarded}
+    for h, what in sorted(unguarded.items()):
+        if h in twice:
+            add(out, h, 1, "c-no-include-guard", "`%s` reaches this header twice, and with no include guard its `%s` is defined twice"
+                % (twice[h], what))
+        elif h in from_header:
+            add(out, h, 1, "c-include-guard-maybe", "this header has no include guard but is included from another header; "
+                "a file that includes both gets its `%s` twice" % what)
+    return out
+
+
+C_TEST_FILE = re.compile(r"(?i)(^|/)(?:test[_-]?\w*|\w*[_-]tests?)\.[ch]$|(^|/)\w*_?test\.[ch]$")
 
 
 def check(root):
@@ -3878,6 +4101,8 @@ def check(root):
         except (OSError, UnicodeDecodeError):
             continue
     slugs_of = {r: _md_parts(t)[1] for r, t in texts.items() if r.lower().endswith((".md", ".markdown"))}
+    # the project's own assert() that is never switched off (Redis serverAssert style): side effects in it are safe
+    c_assert_on = any(re.search(r"(?m)^\s*#\s*define\s+assert\s*\(", t) for r, t in texts.items() if r.lower().endswith(".h"))
     for rel, text in texts.items():
         ext = rel.rsplit(".", 1)[-1].lower()
         test = bool(TEST_PATH.search(rel))
@@ -3896,11 +4121,15 @@ def check(root):
                 found += check_json(rel, text, project.root, files)
             elif ext in ("md", "markdown"):
                 found += check_md(rel, text, files, slugs_of)
-            elif ext in ("c", "h") and not test:
-                found += check_c(rel, text)
+            elif ext in ("c", "h") and not test and not C_TEST_FILE.search(rel):
+                found += check_c(rel, text, c_assert_on)
         except Exception as e:                      # one odd file must never stop the whole check
             print("  (skipped %s: %s)" % (rel, type(e).__name__))
             continue
+    try:
+        found += c_include_guards(texts)
+    except Exception as e:
+        print("  (C include-guard check skipped: %s)" % type(e).__name__)
     try:
         found += ts_project_checks(project.root, texts, project.files)
     except Exception as e:
