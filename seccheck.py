@@ -41,11 +41,27 @@ sys.path.insert(0, str(HERE))
 import dedupe  # noqa: E402
 import ledger  # noqa: E402
 from bugcheck import TEST_PATH, _dotted, _line, _match_close, _split_top, js_lex  # noqa: E402
+from bugcheck import C_TEST_FILE, _c_args, _c_functions, _c_literal, _c_strip, _c_types  # noqa: E402
 
 MAX_SIZE = 1_500_000
 
 # kind: (pile, title, why, what to do)
 RULES = {
+    "sec-c-command-injection": ("decision", "a shell command built from text from outside",
+                                "system() and popen() hand the whole text to the shell; if part of it comes from the user, the command "
+                                "line or the environment, they can add their own command after a `;` (`file.txt; rm -rf ~`)",
+                                "do not use the shell: run the program directly with fork() + execv() / posix_spawn(), passing each value "
+                                "as its own argument; or allow only a fixed list of safe values"),
+    "sec-c-command-from-caller": ("idea", "a shell command that includes text it was given",
+                                  "this function puts its caller's text into a command for the shell; if any caller ever passes text "
+                                  "from a user, a `;` in it starts a second command of their choice",
+                                  "run the program directly with fork() + execv() / posix_spawn(), passing the value as its own argument, "
+                                  "or check it against a list of allowed values first"),
+    "sec-c-insecure-random": ("decision", "a security code made with rand()",
+                              "rand() is a simple formula, usually started from the time with srand(time(NULL)); anyone who knows "
+                              "roughly when the code was made can work out the same \"random\" token or password",
+                              "use the system's secure randomness: getrandom() or /dev/urandom on Linux, arc4random_buf() on BSD/macOS, "
+                              "BCryptGenRandom() on Windows"),
     "sec-sql-injection": ("decision", "a database query built from text",
                           "if any part can come from a visitor, they can change the query - read or delete every row (SQL injection)",
                           "pass values separately: cursor.execute(\"... WHERE name = %s\", (name,)) / db.query(\"... = ?\", [name])"),
@@ -845,6 +861,116 @@ def check_template(rel, text, ext):
             add(out, rel, _line(text, m.start()), "sec-xss", msg % val[:40])
     return out
 
+# =================================================================================================== C
+C_SEC_RAND_NAME = re.compile(r"(?i)(?:^|_)(?:token|passw(?:or)?d|pwd|otp|pin|salt|nonce|secret|session(?:_?id)?|sid|csrf|captcha|ticket|"
+                             r"(?:secret|private|session|api|enc|aes|crypt|sign|hmac|master|auth)_?key|iv|"
+                             r"(?:reset|verify|verification|auth|login|otp|invite|coupon|voucher|confirm)_?(?:code|token|id|link))s?$"
+                             r"|(token|password|passwd|otp|salt|nonce|session_?id|captcha)")
+
+
+def _c_name_like(v):
+    """".prop.lockdiscovery.activelock.locktoken.href", "x-auth-token": a name or path, not a secret value."""
+    return bool(re.fullmatch(r"[A-Za-z._/:-]+", v) and len(re.findall(r"[._/:-]", v)) >= 2)
+
+
+def check_c(rel, text):
+    """22 - system()/popen() with outside text, 23 - passwords written into C code, 24 - rand() for security codes."""
+    out = []
+    s = _c_strip(text)
+    # 23 - #define API_KEY "..." / const char *password = "..." / .password = "..." / strcmp(pass, "...")
+    for m in re.finditer(r'(?m)^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]+(?:L|u8)?"((?:[^"\\\n]|\\.)*)"[ \t]*$', text):
+        if _secret_value(m.group(1).lower(), m.group(2)) and not _c_name_like(m.group(2)):
+            add(out, rel, _line(text, m.start()), "sec-hardcoded-password", "#define %s \"%s...\"" % (m.group(1), m.group(2)[:3]))
+    for m in re.finditer(r'(?<![\w>])\.?([A-Za-z_]\w*)\s*(?:\[\s*\w*\s*\])?\s*=\s*(?:\(\s*[\w\s*]+\)\s*)?(?:L|u8)?"', s):
+        q = text.find('"', m.end() - 1)
+        lit = re.match(r'"((?:[^"\\\n]|\\.)*)"', text[q:]) if q >= 0 else None
+        if lit and _secret_value(m.group(1).lower(), lit.group(1)) and not _c_name_like(lit.group(1)):
+            add(out, rel, _line(text, m.start()), "sec-hardcoded-password", "%s = \"%s...\"" % (m.group(1), lit.group(1)[:3]))
+    for m in re.finditer(r"(?<![\w.>])(strcmp|strncmp|strcasecmp|memcmp)\s*\(", s):
+        args = _c_args(s, m.end() - 1)
+        if len(args) < 2:
+            continue
+        a, b = (s[x:y].strip() for x, y in args[:2])
+        la, lb = _c_literal(text, *args[0]), _c_literal(text, *args[1])
+        name, lit = (a, lb) if lb is not None else (b, la)
+        name = re.sub(r".*(?:->|\.)", "", name)
+        if lit is not None and re.fullmatch(r"[A-Za-z_]\w*", name) and _secret_value(name.lower(), lit) and not _c_name_like(lit):
+            add(out, rel, _line(text, m.start()), "sec-hardcoded-password", "`%s` is compared with the password \"%s...\" written in the code"
+                % (name, lit[:3]))
+    for fname, params, b0, b1 in _c_functions(s):
+        body = s[b0:b1]
+        types, _ = _c_types(params, body)
+        pnames = {n for n in re.findall(r"([A-Za-z_]\w*)\s*(?:\[\s*\])?\s*(?=,|$)", params) if n in types and types[n][0] in ("char", "wchar_t")}
+        envs = {m.group(1) for m in re.finditer(r"(?<![\w.>])([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?(?:secure_)?getenv\s*\(", body)}
+        typed = {m.group(1) for m in re.finditer(r"(?<![\w.>])(?:fgets|gets)\s*\(\s*([A-Za-z_]\w*)", body)}
+        typed |= {m.group(1) for m in re.finditer(r"(?<![\w.>])(?:read|recv)\s*\(\s*[^,()]+,\s*([A-Za-z_]\w*)", body)}
+        outside = pnames | envs | typed
+
+        def outside_expr(e):
+            e = e.strip()
+            if re.fullmatch(r"argv\s*\[[^\]]+\]", e) or re.fullmatch(r"(?:secure_)?getenv\s*\(.*\)", e, re.S):
+                return e
+            m = re.fullmatch(r"(?:\(\s*[\w\s*]+\)\s*)?([A-Za-z_]\w*)", e)
+            return m.group(1) if m and m.group(1) in outside else None
+
+        def where(src):
+            if src.startswith("argv"):
+                return "the command line"
+            if "getenv" in src or src in envs:
+                return "an environment variable"
+            if src in typed:
+                return "what the user typed"
+            return "the caller (any text)"
+        # buffers filled with outside text: snprintf(cmd, n, "... %s", folder) / strcat(cmd, item) / strcpy(cmd, item)
+        built = {}
+        for m in re.finditer(r"(?<![\w.>])(sprintf|snprintf|strcpy|strcat|strncpy|strncat)\s*\(", body):
+            args = _c_args(s, b0 + m.end() - 1)
+            if len(args) < 2:
+                continue
+            dst = s[args[0][0]:args[0][1]].strip()
+            srcs = args[1:2] if m.group(1) in ("strcpy", "strcat", "strncpy", "strncat") else args[(2 if m.group(1) == "sprintf" else 3):]
+            for x, y in srcs:
+                src = outside_expr(s[x:y])
+                if src:
+                    built.setdefault(dst, src)
+        # 22 - system(cmd) / popen(cmd, "r") / execl("/bin/sh", "sh", "-c", cmd, NULL) with that text in it
+        for m in re.finditer(r"(?<![\w.>])(system|popen|_popen|execl|execlp)\s*\(", body):
+            fn = m.group(1)
+            args = _c_args(s, b0 + m.end() - 1)
+            if fn in ("execl", "execlp"):
+                lits = [_c_literal(text, x, y) for x, y in args]
+                if not (len(args) >= 4 and lits[0] and re.search(r"(^|/)(ba|da|z|k)?sh$", lits[0]) and lits[2] == "-c"):
+                    continue                     # execlp("tar", "tar", ...): no shell in between, each value stays one argument
+                x, y = args[3]
+            else:
+                if not args:
+                    continue
+                x, y = args[0]
+            if _c_literal(text, x, y) is not None:
+                continue
+            e = s[x:y].strip()
+            src = outside_expr(e) or built.get(e)
+            if not src or src in pnames and re.search(r"(?i)(cmd|command|shell|script|prog|exe|line)", src):
+                continue                         # run_command(const char *cmd): running the caller's command is the point
+            if src in pnames:
+                add(out, rel, _line(text, b0 + m.start()), "sec-c-command-from-caller",
+                    "`%s(%s)` - the command contains `%s`, passed in by the caller" % (fn, e[:30], src[:30]))
+            else:
+                add(out, rel, _line(text, b0 + m.start()), "sec-c-command-injection",
+                    "`%s(%s)` - the command contains `%s`, which comes from %s" % (fn, e[:30], src[:30], where(src)))
+        # 24 - rand() making a token, password, PIN, salt, session id ...
+        for m in re.finditer(r"(?<![\w.>])(rand|random|lrand48|mrand48|drand48|rand_r)\s*\(", body):
+            pos = b0 + m.start()
+            st = max(s.rfind(";", b0, pos), s.rfind("{", b0, pos), s.rfind("}", b0, pos)) + 1
+            stmt = s[st:pos]
+            lhs = re.search(r"([A-Za-z_][\w.\->]*)\s*(?:\[[^\]]*\])?\s*[-+*/%^|&]?=(?!=)", stmt)
+            who = re.sub(r".*(?:->|\.)", "", lhs.group(1)) if lhs else ""
+            if (who and C_SEC_RAND_NAME.search(who)) or (not who and re.match(r"\s*return\b", stmt) and C_SEC_RAND_NAME.search(fname)) \
+                    or (who and C_SEC_RAND_NAME.search(fname) and not re.search(r"(?i)^(i|j|k|n|idx|index|tmp|r)$", who)):
+                add(out, rel, _line(text, pos), "sec-c-insecure-random", "`%s` made with %s()" % (who or fname + "()", m.group(1)))
+                break
+    return out
+
 
 # =================================================================================================== run
 def check(root):
@@ -862,7 +988,7 @@ def check(root):
             continue
         ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
         base = posixpath.basename(rel)
-        textual = ext in ("py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "json", "yml", "yaml", "toml", "ini", "cfg",
+        textual = ext in ("py", "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "json", "yml", "yaml", "toml", "ini", "cfg", "c", "h",
                           "conf", "env", "properties", "xml", "sh", "ps1", "rb", "php", "go", "java", "kt", "cs", "swift", "dart", "tf",
                           "html", "md", "txt") + TEMPLATE_EXT or base.startswith(".env") or base in ("Dockerfile", "docker-compose.yml")
         if not textual:
@@ -881,6 +1007,8 @@ def check(root):
                 continue
             if ext == "py":
                 found += check_python(rel, text)
+            elif ext in ("c", "h") and not C_TEST_FILE.search(rel):
+                found += check_c(rel, text)
             elif ext in TEMPLATE_EXT:
                 found += check_template(rel, text, ext)
             elif ext in ("js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte"):
