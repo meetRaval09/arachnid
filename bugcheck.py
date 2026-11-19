@@ -280,6 +280,17 @@ RULES = {
     "c-fallthrough": ("decision", "a switch case with no break",
                       "without `break` the program does not stop at the end of a case: it runs straight on into the next case's lines too",
                       "add `break;` at the end of the case, or a `/* fall through */` comment if it is meant"),
+    "c-fopen-no-null-check": ("decision", "a file used without checking it opened",
+                              "fopen gives back NULL when the file is missing, locked or not allowed, and the next file call then crashes",
+                              "check it first: `if (f == NULL) { perror(path); return -1; }`"),
+    "c-file-leak": ("decision", "a file that is never closed",
+                    "every open file uses one of a limited number of slots, and text written to it may sit unsaved in memory until fclose; "
+                    "a program that keeps doing this runs out of files or loses data",
+                    "call fclose() when you are done with it"),
+    "c-file-leak-early-return": ("decision", "a return that leaves a file open",
+                                 "this way out of the function skips the fclose() the other ways out do, so the file stays open (and anything "
+                                 "written may not be saved)",
+                                 "close it before this return too, or jump to one shared clean-up label"),
     "c-fallthrough-maybe": ("idea", "a switch case that runs into the next one",
                             "there is no `break` at the end of this case, so the next case's lines run too; that can be meant, but then "
                             "C programmers mark it so readers (and the compiler) know",
@@ -2766,7 +2777,12 @@ C_WRITES_ARG1 = {"memcpy", "memmove", "memset", "strcpy", "strncpy", "strcat", "
 C_STOP = {"return", "goto", "break", "continue", "exit", "abort", "_exit", "longjmp", "siglongjmp", "__builtin_unreachable"}
 C_DECL = re.compile(r"(?:(?<=[;{}(,])|^)\s*((?:(?:const|static|volatile|register|struct|union|enum|unsigned|signed|long|short)\s+)*"
                     r"([A-Za-z_]\w*)\s*(?:const\s*)?)(\*+)\s*(?:const\s+)?([A-Za-z_]\w*)\s*(?=[=;,)\[])", re.M)
-C_ALLOC_AT = re.compile(r"(?<![\w.>])([A-Za-z_]\w*)\s*=(?!=)\s*(?:\(\s*[\w\s]+\*+\s*\)\s*)?(%s)\s*\(" % "|".join(C_ALLOCS))
+C_OPENERS = ("fopen", "fdopen", "tmpfile")
+C_ALLOC_AT = re.compile(r"(?<![\w.>])([A-Za-z_]\w*)\s*=(?!=)\s*(?:\(\s*[\w\s]+\*+\s*\)\s*)?(%s)\s*\(" % "|".join(C_ALLOCS + C_OPENERS))
+# the standard calls that take an open FILE * and only use it
+C_STDIO = {"fprintf", "vfprintf", "fputs", "fgets", "fread", "fwrite", "fscanf", "fseek", "fseeko", "ftell", "ftello", "rewind", "fflush",
+           "fclose", "getc", "putc", "fgetc", "fputc", "ungetc", "setvbuf", "setbuf", "fileno", "feof", "ferror", "clearerr", "getline",
+           "getdelim", "fgetpos", "fsetpos", "flockfile", "funlockfile", "fstat"}
 C_SELF_REALLOC = re.compile(r"(?<![\w.>])([A-Za-z_][\w.\->\[\]]*?)\s*=(?!=)\s*(?:\(\s*[\w\s]+\*+\s*\)\s*)?realloc\s*\(\s*([^,;]+?)\s*,")
 C_FREE = re.compile(r"(?<![\w.>])free\s*\(\s*([A-Za-z_]\w*(?:\s*(?:->|\.)\s*[A-Za-z_]\w*)*)\s*\)\s*;")
 
@@ -2905,6 +2921,33 @@ def _c_block_head(s, b, lo):
         return m.group(1) if m else ""
     m = re.search(r"\b(do|else)\s*$", s[max(lo, b - 200):b])
     return m.group(1) if m else ""
+
+
+def _c_failed_path(s, r, v, alloc_at, blk, lo):
+    """The statement at r only runs when v is NULL (inside if (!v) / if ((v = f()) == NULL), at any depth)."""
+    st = _c_stmt_start(s, r, lo)
+    m = re.search(r"\b(?:if|while)\s*\(", s[st:r])
+    spans = []
+    if m:
+        o = st + m.end() - 1
+        spans.append((o, _match_close(s, o)))
+    b = _c_enclosing_block(s, r, lo)
+    while b > blk:
+        k = b - 1
+        while k > lo and s[k].isspace():
+            k -= 1
+        if s[k] == ")":
+            o = _c_match_open(s, k)
+            if o > 0 and re.search(r"\b(?:if|while)\s*$", s[max(lo, o - 200):o]):
+                spans.append((o, k))
+        b = _c_enclosing_block(s, b, lo)
+    for o, c in spans:
+        cond = s[o + 1:c]
+        if o < alloc_at < c:
+            return True                          # if ((fp = fopen(...)) == NULL) { return; }: nothing was opened
+        if _c_null_test(cond, v) and "||" not in _c_top_level(cond):
+            return True                          # (if (!a || !b) return: when only b failed, a is still open / allocated)
+    return False
 
 
 def _c_null_test(cond, v):
@@ -3609,6 +3652,9 @@ def check_c(rel, text):
             v, fn = m.group(1), m.group(2)
             if v in C_CTRL:
                 continue
+            is_file = fn in C_OPENERS
+            release = "fclose" if is_file else "free"
+            borrow = (C_BORROW | C_STDIO) if is_file else C_BORROW
             pre = s[_c_stmt_start(s, m.start(1), b0):m.start(1)].strip()
             if pre.endswith("*") and not re.search(r"[A-Za-z_]\w*\s*\*+$", pre):
                 continue                         # *out = malloc(...): the result goes to the caller, not to a local
@@ -3634,11 +3680,15 @@ def check_c(rel, text):
             if uses and not wrapped and not self_realloc:
                 i, j = uses[0]
                 call = _c_call_of(s, i, b0)
-                if _c_deref(s, i, j) or (call in C_WRITES_ARG1 and _c_first_arg(s, i, b0)):
+                if is_file:
+                    if call in C_STDIO and _c_call_args_hold(s, i, j):
+                        report(i, "c-fopen-no-null-check", "`%s` comes from %s(), which gives NULL when the file cannot be opened, and "
+                               "%s() uses it here without checking" % (v, fn, call))
+                elif _c_deref(s, i, j) or (call in C_WRITES_ARG1 and _c_first_arg(s, i, b0)):
                     report(i, "c-no-null-check", "`%s` comes from %s() and is used here before checking it is not NULL" % (v, fn))
             # 1 - a local block that is never freed, returned or handed on
-            if v not in local or local[v] or self_realloc or v in macro_words:
-                continue
+            if v not in local or local[v] or self_realloc or v in macro_words or (is_file and fname == "main"):
+                continue                         # (a file left open in main() is closed by the system when the program ends)
             escaped, handed, names, k = False, False, [v], 0
             while k < len(names) and not escaped:
                 w = names[k]
@@ -3648,8 +3698,9 @@ def check_c(rel, text):
                     st = _c_stmt_start(s, a, b0)
                     stmt_end = s.find(";", a)
                     stmt = s[st:stmt_end if stmt_end > 0 else b1]
-                    if re.match(r"\s*return\b", stmt) or s[max(b0, a - 2):a].rstrip().endswith("&"):
-                        escaped = True
+                    if re.search(r"\breturn\b", s[st:a]) and _c_call_of(s, a, st) not in (C_SCALAR | C_STDIO if is_file else C_SCALAR) \
+                            or s[max(b0, a - 2):a].rstrip().endswith("&"):
+                        escaped = True           # return p hands it to the caller (return strlen(p) does not)
                         break
                     am = re.search(r"(?<![=!<>+\-*/%&|^])=(?!=)", stmt)
                     if am and st + am.end() <= a:
@@ -3662,25 +3713,29 @@ def check_c(rel, text):
                                 if al.group(1) not in names:   # q = p: a second name for the same memory, follow it too
                                     names.append(al.group(1))
                                 continue
-                            if _c_call_of(s, a, st) not in C_BORROW:   # x = p, s->buf = p, x = keep(p): someone else holds it now
+                            if _c_call_of(s, a, st) not in borrow:   # x = p, s->buf = p, x = keep(p): someone else holds it now
                                 escaped = True
                                 break
                     call = _c_call_of(s, a, b0)
-                    if call and call != "free" and call not in C_BORROW and call not in C_CTRL:
+                    if call and call != release and call not in borrow and call not in C_CTRL:
                         handed = True
             if escaped:
                 continue
-            frees = [b0 + f.start() for f in re.finditer(r"(?<![\w.>])free\s*\(\s*(?:%s)\s*\)" % "|".join(map(re.escape, names)), s[b0:b1])]
+            frees = [b0 + f.start() for f in re.finditer(r"(?<![\w.>])%s\s*\(\s*(?:%s)\s*\)" % (release, "|".join(map(re.escape, names))), s[b0:b1])]
             if not frees:
                 if not handed:
-                    report(m.start(), "c-leak", "`%s` gets memory from %s() but it is never freed, returned or stored anywhere" % (v, fn))
+                    if is_file:
+                        report(m.start(), "c-file-leak", "`%s` is opened with %s() but never closed, returned or stored anywhere" % (v, fn))
+                    else:
+                        report(m.start(), "c-leak", "`%s` gets memory from %s() but it is never freed, returned or stored anywhere" % (v, fn))
                 continue
             blk = _c_enclosing_block(s, m.start(), b0)
             blk_end = _match_close(s, blk)
             blk_loop = _c_block_head(s, blk, b0) in ("for", "while", "do")
             for r in re.finditer(r"(?<![\w.])(return|continue)\b", s[end:blk_end]):
                 kw, r = r.group(1), end + r.start()
-                if any(m.start() < f < r for f in frees) or _c_null_test(_c_guard(s, r, b0), v):
+                r_end = s.find(";", r)
+                if any(m.start() < f < r_end for f in frees) or _c_failed_path(s, r, v, m.start(), blk, b0):
                     continue
                 if kw == "continue":
                     if not blk_loop:
@@ -3693,7 +3748,10 @@ def check_c(rel, text):
                         inner = _c_enclosing_block(s, inner, b0)
                     if nested:
                         continue
-                report(r, "c-leak-early-return", "this %s leaves `%s` (from %s() above) without freeing it" % (kw, v, fn))
+                if is_file:
+                    report(r, "c-file-leak-early-return", "this %s leaves the file `%s` (opened with %s() above) open" % (kw, v, fn))
+                else:
+                    report(r, "c-leak-early-return", "this %s leaves `%s` (from %s() above) without freeing it" % (kw, v, fn))
 
         # 2 + 3 - using or freeing memory again after free(p) / free(s->buf)
         for fm in C_FREE.finditer(s, b0, b1):

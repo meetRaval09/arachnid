@@ -102,7 +102,7 @@ LEAK_RULES = [
     dict(id="new-without-delete", fam={"c"}, conf="medium", mode="gap", open=r"\bnew\s+[A-Za-z_][\w:<>]*\s*[\(\[{;]", close=r"\bdelete\b",
          skip_if=r"unique_ptr|shared_ptr|make_unique|make_shared|QObject|std::vector<std::unique",
          msg="uses `new` more often than `delete`", tip="prefer std::unique_ptr / std::make_unique so memory is freed automatically"),
-    dict(id="fopen-without-fclose", fam={"c"}, conf="medium", mode="gap", open=r"\bfopen\s*\(", close=r"\bfclose\s*\(",
+    dict(id="fopen-without-fclose", fam={"c"}, skip_ext={"c", "h"}, conf="medium", mode="gap", open=r"\bfopen\s*\(", close=r"\bfclose\s*\(",
          msg="opens files with fopen and closes fewer", tip="close every file you open"),
     dict(id="go-resource-not-closed", fam={"go"}, conf="medium", mode="none",
          open=r"\bos\.Open\(|\bhttp\.(?:Get|Post|Head)\(|\bsql\.Open\(|\.Query\(", close=r"\.Close\(\)",
