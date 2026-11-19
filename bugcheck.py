@@ -270,6 +270,31 @@ RULES = {
     "c-strlen-no-room": ("decision", "no room for the end-of-text marker",
                          "strlen() does not count the '\\0' that ends every C string, and strcpy writes it anyway, one byte past the memory",
                          "allocate `strlen(s) + 1`"),
+    "c-assign-in-condition": ("decision", "`=` where `==` was meant",
+                              "a single = puts the value into the variable, and the condition is then true whenever that value is not 0 - "
+                              "so the check never really compares anything",
+                              "use `==` to compare; if you do mean to assign, wrap it in extra brackets: `if ((x = f()))`"),
+    "c-empty-body": ("decision", "a stray semicolon that empties an if or loop",
+                     "`if (x);` - the `;` is a complete (empty) statement, so it is all the if controls; the block below runs every time",
+                     "remove the `;` after the closing bracket"),
+    "c-fallthrough": ("decision", "a switch case with no break",
+                      "without `break` the program does not stop at the end of a case: it runs straight on into the next case's lines too",
+                      "add `break;` at the end of the case, or a `/* fall through */` comment if it is meant"),
+    "c-fallthrough-maybe": ("idea", "a switch case that runs into the next one",
+                            "there is no `break` at the end of this case, so the next case's lines run too; that can be meant, but then "
+                            "C programmers mark it so readers (and the compiler) know",
+                            "add `break;`, or a `/* fall through */` comment if running on is intended"),
+    "c-uninitialized": ("decision", "a variable used before it has a value",
+                        "a local variable in C starts with whatever bytes were left in memory, so reading it before setting it gives "
+                        "random results that change from run to run",
+                        "give it a starting value where it is declared, e.g. `int total = 0;`"),
+    "c-format-mismatch": ("decision", "printf told the wrong type",
+                          "printf trusts the % code, not the variable: `%d` with a long, double or size_t reads the wrong number of "
+                          "bytes and prints nonsense (or crashes)",
+                          "use the matching code: %d int, %ld long, %zu size_t, %f double, %s text, %p pointer"),
+    "c-macro-parens": ("decision", "a macro without brackets",
+                       "a macro pastes text, it does not calculate first: with `#define SQ(x) x*x`, SQ(1+2) becomes 1+2*1+2 = 5, not 9",
+                       "put brackets around every parameter and around the whole result: `#define SQ(x) ((x) * (x))`"),
     # ---------------------------------------------------------------- HTML
     "html-duplicate-id": ("decision", "the same id twice on one page",
                           "an id must be unique; scripts and labels only ever find the first element", "give each element its own id"),
@@ -3142,17 +3167,406 @@ def _c_buffer_checks(s, text, b0, b1, params, types, file_arrays, report):
             report(m.start(), "c-strlen-no-room", "`%s` gets exactly strlen() bytes, then a string is copied in: its closing '\\0' lands one byte past the end"
                    % v)
 
+C_SCALAR_DECL = re.compile(r"(?:(?<=[;{}])|^)[ \t]*((?:(?:const|volatile|register|unsigned|signed|short|long)\s+)*"
+                           r"(?:int|char|short|long|float|double|size_t|ssize_t|unsigned|signed|bool|_Bool|u?int(?:8|16|32)_t|ptrdiff_t))"
+                           r"(?![\w])[ \t]+([^;{}\n]+);", re.M)
+C_FMT_FULL = re.compile(r"%[-+ #0']*(\*|\d+)?(?:\.(\*|\d*))?(hh|h|ll|l|L|j|z|t|q)?([diouxXeEfFgGaAcspn%])")
+C_NORETURN = re.compile(r"^\s*(?:break|return|goto|continue)\b|\b(?:exit|_exit|abort|longjmp|siglongjmp|err|errx|__builtin_unreachable|"
+                        r"__builtin_trap|panic|die|fatal|BUG|unreachable)\s*\(|fall_?through|FALL_?THROUGH", re.I)
+
+
+def _c_type_class(tp, stars, is_array=False):
+    """What printf needs for a variable of this declared type."""
+    tp = re.sub(r"\s+", " ", tp.replace("const", "").replace("volatile", "").replace("register", "")).strip()
+    if stars or is_array:
+        if stars == 1 and tp in ("char", "signed char", "unsigned char") or (is_array and not stars and tp == "char"):
+            return "str"
+        return "ptr" if stars else None
+    if "double" in tp or "float" in tp:
+        return None if "long double" in tp else "double"
+    if tp in ("size_t", "ssize_t"):
+        return "size"
+    if "long long" in tp:
+        return "llong"
+    if "long" in tp:
+        return "long"
+    if re.fullmatch(r"(?:unsigned |signed )?(?:int|char|short|short int)|unsigned|signed|bool|_Bool|u?int(?:8|16|32)_t", tp):
+        return "int"
+    return None
+
+
+def _c_scalars(code):
+    """name -> (type text, stars, has value at declaration, declaration end) for simple variables declared in code."""
+    out = {}
+    for m in C_SCALAR_DECL.finditer(code):
+        tp, rest = m.group(1), m.group(2)
+        if re.match(r"\s*(?:return|else|case)\b", tp):
+            continue
+        depth, st, parts = 0, 0, []
+        for k, ch in enumerate(rest):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                parts.append(rest[st:k])
+                st = k + 1
+        parts.append(rest[st:])
+        for p in parts:
+            dm = re.fullmatch(r"\s*(\**)\s*([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*(=.*)?", p, re.S)
+            if dm:
+                out[dm.group(2)] = (tp, len(dm.group(1)), bool(dm.group(4)), m.end(), bool(dm.group(3)))
+    return out
+
+
+def _c_logic_checks(s, text, b0, b1, params, report, macro_words=frozenset(), paste_macros=(), noreturn_fns=frozenset()):
+    body = s[b0:b1]
+    # 12 - if (x = 5): an assignment where a comparison was meant
+    for m in re.finditer(r"(?<![\w.>])(if|while)\s*\(", body):
+        o = b0 + m.end() - 1
+        c = _match_close(s, o)
+        inner = s[o + 1:c]
+        st = inner.strip()
+        lead = len(inner) - len(inner.lstrip())
+        if st.startswith("(") and _match_close(s, o + 1 + lead) == o + lead + len(st):
+            continue                             # if ((x = f())): the extra brackets say "yes, I mean to assign"
+        depth = 0
+        for k, ch in enumerate(inner):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "=" and depth == 0 and (k == 0 or inner[k - 1] not in "=!<>+-*/%&|^") and inner[k + 1:k + 2] != "=":
+                lhs, rhs = inner[:k].strip(), inner[k + 1:].strip()
+                rhs_text = re.sub(r"\s+", "", text[o + 1 + k + 1:c])
+                surely = re.fullmatch(r"-?(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?)[uUlLfF]*|'.{1,2}'|NULL|true|false|[A-Z][A-Z0-9_]+", rhs_text) \
+                    or re.search(r"==|!=|<=|>=|(?<![<\-])<(?![<=])|(?<![>\-])>(?![>=])", _c_top_level(rhs))
+                if not surely or not re.fullmatch(r"[A-Za-z_][\w.\->\[\]]*", lhs) or "," in _c_top_level(inner):
+                    break                        # if (p = malloc(n)) / while (node = next(node)): old style, but on purpose
+                report(o + 1 + k, "c-assign-in-condition", "`%s` gives `%s` a new value instead of comparing it (== compares)"
+                       % (re.sub(r"\s+", " ", st)[:50], lhs[:30]))
+                break
+    # 13 - if (x); / for (...); { ... }: a stray semicolon is the whole body
+    for m in re.finditer(r"(?<![\w.>])(if|for|while)\s*\(", body):
+        kw, o = m.group(1), b0 + m.end() - 1
+        c = _match_close(s, o)
+        rest = s[c + 1:c + 200]
+        sm = re.match(r"[ \t]*;", rest)
+        if not sm:
+            continue
+        after = rest[sm.end():].lstrip()
+        if kw == "if":
+            if after.startswith("else"):
+                continue
+        else:
+            if not after.startswith("{"):
+                continue                         # for (n = 0; s[n]; n++);  - an empty loop on purpose
+            if kw == "while":
+                k = b0 + m.start() - 1
+                while k > b0 and s[k].isspace():
+                    k -= 1
+                if s[k] == "}" and _c_block_head(s, _c_match_open_brace(s, k), b0) == "do":
+                    continue                     # the end of do { ... } while (x);
+        report(c + 1 + sm.end() - 1, "c-empty-body", "the `;` right after `%s (...)` is its whole body, so the lines below run %s"
+               % (kw, "every time" if kw == "if" else "only once, after the loop"))
+    # 14 - a case that runs on into the next one
+    for m in re.finditer(r"(?<![\w.>])switch\s*\(", body):
+        o = b0 + m.end() - 1
+        c = _match_close(s, o)
+        k = c + 1
+        while k < b1 and s[k].isspace():
+            k += 1
+        if s[k] != "{":
+            continue
+        end = _match_close(s, k)
+        labels, depth, i = [], 0, k + 1
+        while i < end:
+            ch = s[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif depth == 0 and (ch == "c" or ch == "d") and s[i - 1] in " \t\n;{}:":
+                lm = re.match(r"(case\b[^:]*|default\s*):(?!:)", s[i:end])
+                if lm:
+                    labels.append((i, i + lm.end()))
+                    i += lm.end()
+                    continue
+            i += 1
+        falls = []
+        for (a0, a1), (n0, n1) in zip(labels, labels[1:]):
+            seg = s[a1:n0]
+            if not seg.strip():
+                continue                         # case 'A': case 'a':  - two names for one case
+            tail = seg.rstrip()
+            if tail.endswith("}"):
+                ob = _c_match_open_brace(s, a1 + len(tail) - 1)
+                if _c_block_head(s, ob, b0):
+                    continue                     # ends with if/for/while/switch: cannot tell every path
+                inner_tail = s[ob + 1:a1 + len(tail) - 1].rstrip()
+                tail_start = ob + 1
+                tail = inner_tail
+            else:
+                tail_start = a1
+            tail = re.sub(r"(?:\s*;)+$", ";", tail)          # break;;  - extra empty statements
+            if not tail.endswith(";"):
+                continue
+            pos = tail_start + len(tail) - 1
+            k, depth = pos - 1, 0                 # walk back over whole (), [] and {} groups to the start of the last statement
+            while k >= tail_start:
+                ch = s[k]
+                if ch in ")]}":
+                    depth += 1
+                elif ch in "([{":
+                    depth -= 1
+                elif depth == 0 and ch == ";":
+                    break
+                k -= 1
+            stmt = s[k + 1:pos]
+            top = _c_top_level(stmt)
+            if C_NORETURN.search(top) or re.search(r"(?:^|[\s)])(?:break|return|goto|continue)\b", top) or \
+                    re.search(r"\b\w*(?:die|fatal|panic|abort|exit|bug|usage|unreachable|throw|croak|longjmp)\w*\s*\(", stmt, re.I) or \
+                    re.search(r"\bassert\s*\(\s*(?:0|false|!)", stmt) or re.match(r"\s*(?:if|else|for|while|do|switch)\b", stmt) or \
+                    any(re.search(r"(?<![\w.>])%s\s*\(" % re.escape(f), stmt) for f in noreturn_fns) or \
+                    re.search(r"\bnot_?reached\b|\b[A-Z_]*(?:RET|RETURN|FAIL|GOTO|BREAK|BAIL|ABORT|EXIT)[A-Z_]*\s*\(|\bbail\w*\s*\(", stmt) or \
+                    re.search(r"fall|thr(?:ough|u)|no\s*break|nobreak|not\s*reached|notreached|unreachable", text[pos:n0], re.I):
+                continue
+            label = re.sub(r"\s+", " ", text[n0:n1])
+            falls.append((n0, n1, label, stmt))
+        if len(falls) >= 3:
+            continue                             # case 32: ... case 31: ...: a cascade on purpose (Duff's device style)
+        for n0, n1, label, stmt in falls:
+            lm = re.match(r"\s*([A-Za-z_][\w.\->\[\]]*)\s*=(?!=)", stmt)
+            nm = re.match(r"\s*([A-Za-z_][\w.\->\[\]]*)\s*=(?!=)", s[n1:n1 + 200])
+            if lm and nm and re.sub(r"\s+", "", lm.group(1)) == re.sub(r"\s+", "", nm.group(1)):
+                report(n0, "c-fallthrough", "the case above has no `break`: it runs on into `%s`, which at once overwrites `%s` - "
+                       "so the case above never has any effect" % (label[:30], lm.group(1).strip()))
+            else:
+                report(n0, "c-fallthrough-maybe", "the case above has no `break` and no `/* fall through */` note, so it runs on into `%s` as well"
+                       % label[:30])
+    # 15 - a variable read before it was ever given a value
+    scal = _c_scalars(body)
+    nested_fn = bool(re.search(r"\bauto\s+(?:inline\s+)?[A-Za-z_]", body))   # GNU nested functions: a body inside a body
+    paste_macro_used = any(re.search(r"(?<![\w.>])%s\s*\(" % re.escape(pm), body) for pm in paste_macros)
+    for name, (tp, stars, has_value, dend, is_arr) in scal.items():
+        if has_value or is_arr or _c_decl_count(body, name) > 1 or name in macro_words or paste_macro_used or nested_fn:
+            continue
+        decl_end = b0 + dend
+        blk = _c_enclosing_block(s, decl_end, b0)
+        blk_end = _match_close(s, blk) if blk > b0 else b1
+        for om in re.finditer(r"(?<![\w.>])%s\b" % re.escape(name), s[decl_end:blk_end]):
+            i = decl_end + om.start()
+            j = decl_end + om.end()
+            if text[i:j] != name:
+                break
+            if re.search(r"\b(?:struct|union|enum|goto)\s+$", s[max(b0, i - 10):i]) or re.match(r"\s*:(?!:)", s[j:]):
+                continue                         # struct cpu / goto name / name: - a tag or label, not this variable
+            st0 = _c_stmt_start(s, i, b0)
+            if re.search(r"\b(?:__asm__|__asm|asm)\b", s[st0:i]):
+                break                            # inline assembly fills it in
+            after = s[j:j + 40].lstrip()
+            if after.startswith("=") and not after.startswith("=="):
+                break                            # given a value first
+            if s[max(b0, i - 3):i].rstrip().endswith("&"):
+                break                            # &x handed to a function that fills it in
+            pre = s[max(b0, i - 40):i]
+            if re.search(r"\bsizeof\s*\(?[\s*&(]*$", pre):
+                continue
+            call = _c_call_of(s, i, b0)
+            if call and call not in C_CTRL and call not in C_BORROW and call not in C_FMT_AT:
+                break                            # a macro or function may set it: cannot tell
+            if re.match(r"\s*\[", s[j:]) or re.match(r"\s*(?:->|\.)", s[j:]):
+                break
+            fh = list(re.finditer(r"\bfor\s*\(", s[max(b0, i - 300):i]))
+            if fh:
+                fo = max(b0, i - 300) + fh[-1].end() - 1
+                if _match_close(s, fo) > i and s[fo:i].count(";") >= 2:
+                    break                        # the step of a for loop runs after its body: textual order is not run order
+            lb, outer_loop = _c_enclosing_block(s, i, b0), None
+            while lb > b0 and lb >= blk:
+                if _c_block_head(s, lb, b0) in ("for", "while", "do"):
+                    outer_loop = lb               # keep going: the outermost loop inside the declaring block
+                lb = _c_enclosing_block(s, lb, b0)
+            if outer_loop is not None:
+                ctrl = None                       # if (x > best) { best = x; }: the write only happens after this read
+                im = list(re.finditer(r"\b(?:if|while)\s*\(", s[max(b0, i - 300):i]))
+                if im:
+                    io = max(b0, i - 300) + im[-1].end() - 1
+                    ic = _match_close(s, io)
+                    if ic > i:
+                        k = ic + 1
+                        while k < b1 and s[k].isspace():
+                            k += 1
+                        ctrl = (k, _match_close(s, k) if s[k] == "{" else s.find(";", k))
+                loop_end = _match_close(s, outer_loop)
+                free_writes = [w.start() + j for w in re.finditer(r"(?<![\w.>])%s\s*=(?!=)" % re.escape(name), s[j:loop_end])
+                               if not (ctrl and ctrl[0] <= w.start() + j <= ctrl[1])]
+                if free_writes:
+                    break                        # set on an earlier turn of the loop, read on a later one
+            report(i, "c-uninitialized", "`%s` is read here before it was ever given a value, so it holds whatever was in memory" % name)
+            break
+    # 16 - printf("%d", some_long): the format code does not match the variable's type
+    pscal = _c_scalars(";" + ";".join(params.split(",")) + ";")
+    known = dict(pscal)
+    known.update(scal)
+    arrays_here = {m.group(2): m.group(1) for m in C_ARRAY.finditer(body)}
+    for m in re.finditer(r"(?<![\w.>])(printf|fprintf|sprintf|snprintf|dprintf)\s*\(", body):
+        fn, o = m.group(1), b0 + m.end() - 1
+        args = _c_args(s, o)
+        fi = C_FMT_AT[fn]
+        if fi >= len(args):
+            continue
+        fmt = _c_literal(text, *args[fi])
+        if fmt is None:
+            continue
+        k = fi + 1
+        for cv in C_FMT_FULL.finditer(fmt):
+            conv, ln = cv.group(4), cv.group(3) or ""
+            if conv == "%":
+                continue
+            k += (cv.group(1) == "*") + (cv.group(2) == "*")
+            if k >= len(args):
+                break
+            arg = s[args[k][0]:args[k][1]].strip()
+            k += 1
+            if not re.fullmatch(r"[A-Za-z_]\w*", arg):
+                continue
+            if _c_decl_count(body, arg) > 1 or (arg in pscal and _c_decl_count(body, arg) > 0) or \
+                    re.search(r"(?:,|\b[A-Za-z_]\w*)\s*\*+\s*%s\s*[,;=\[]" % re.escape(arg), body):
+                continue                         # the same name declared twice: cannot tell which one this is
+            if arg in known:
+                have = _c_type_class(known[arg][0], known[arg][1], known[arg][4])
+            elif arg in arrays_here:
+                have = _c_type_class(arrays_here[arg], 0, True)
+            else:
+                continue
+            if conv in "diouxXc":
+                need = {"": "int", "hh": "int", "h": "int", "l": "long", "ll": "llong", "z": "size"}.get(ln)
+                if conv == "c" and ln:
+                    need = None
+            elif conv in "eEfFgGaA":
+                need = "double" if ln in ("", "l") else None
+            elif conv == "s":
+                need = "str" if not ln else None
+            elif conv == "p":
+                need = "ptr"
+            else:
+                need = None
+            if need is None or have is None:
+                continue
+            if need == have or (need == "ptr" and have == "str"):
+                continue
+            names = {"int": "an int", "long": "a long", "llong": "a long long", "size": "a size_t", "double": "a double", "str": "text",
+                     "ptr": "a pointer"}
+            report(b0 + m.start(), "c-format-mismatch", "`%s` expects %s, but `%s` is %s"
+                   % (cv.group(0), names[need], arg, names[have]))
+            break
+
+
+def _c_top_level(expr):
+    """expr with everything inside brackets removed (so only its top level is left)."""
+    out, depth = [], 0
+    for ch in expr:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def _c_decl_count(body, name):
+    """How many times name is declared (any type) in this function."""
+    return len(re.findall(r"(?:(?<=[;{}(,])|^)[ \t]*(?!(?:return|else|case|goto|sizeof|do)\b)(?:[A-Za-z_]\w*[ \t]+)+\**[ \t]*%s[ \t]*(?=[=;,\[)])"
+                          % re.escape(name), body, re.M))
+
+
+def _c_match_open_brace(s, j):
+    """s[j] is '}' - index of the matching '{'."""
+    depth = 0
+    for k in range(j, -1, -1):
+        if s[k] == "}":
+            depth += 1
+        elif s[k] == "{":
+            depth -= 1
+            if depth == 0:
+                return k
+    return 0
+
+
+def _c_macro_checks(text, report):
+    """#define SQ(x) x * x: a parameter that is not in brackets next to * / % or -."""
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        ln, start = lines[i], i
+        while ln.rstrip().endswith("\\") and i + 1 < len(lines):
+            i += 1
+            ln = ln.rstrip()[:-1] + " " + lines[i]
+        i += 1
+        m = re.match(r"\s*#\s*define\s+([A-Za-z_]\w*)\(([^)]*)\)(.*)", ln)
+        if not m:
+            continue
+        name, params = m.group(1), [p.strip() for p in m.group(2).split(",")]
+        body = re.sub(r"/\*.*?\*/|//.*$", " ", m.group(3)).strip()
+        body = re.sub(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'', '""', body)
+        if ";" in body or "{" in body:
+            continue                             # a statement / declaration macro, not a calculation
+        for p in params:
+            if not re.fullmatch(r"[A-Za-z_]\w*", p):
+                continue
+            pe = re.escape(p)
+            if re.search(r"(?<![\w#])%s\s*(?:->|\.(?!\.)|\[|(?:[-+*/%%&|^]|<<|>>)?=(?!=)|\+\+|--)|(?:\+\+|--|&|\bstruct\s+|\bunion\s+|\benum\s+)\s*%s\b"
+                         % (pe, pe), body) or re.search(r"(?:^|[(,=!?:]|\breturn)\s*\*\s*%s\b" % pe, body):
+                continue                         # used as a pointer, a variable to change, or a type: callers pass a plain name
+            bad = None
+            for om in re.finditer(r"(?<![\w#])%s\b(?!\s*##)" % re.escape(p), body):
+                a, e = om.start(), om.end()
+                if body[max(0, a - 2):a] == "##":
+                    continue
+                before = body[:a].rstrip()
+                after = body[e:].lstrip()
+                prev, nxt = before[-1:], after[:1]
+                if prev == "(" and nxt == ")":
+                    continue
+                if nxt == "*":
+                    rest2 = after[1:]
+                    if not rest2.strip() or rest2.lstrip()[:1] in (")", ",", "*") or \
+                            (body[e:e + 1] == " " and rest2[:1] not in (" ", "\t") and rest2[:1].isalpha()):
+                        continue                 # T *  /  (T *)  /  T *name: a type, not a multiplication
+                if prev == "*" and body[a - 1:a] == "*" and re.search(r"[A-Za-z_]\w*\s+\*$", before):
+                    continue                     # T *name: declaring a pointer, not multiplying
+                ops = ("*", "/", "%")
+                unary_minus = prev == "-" and before[-2:-1] not in ("-",)
+                if nxt in ops or prev in ops or unary_minus:
+                    bad = "%s%s%s" % (before[-3:].lstrip() if prev else "", p, after[:3].rstrip() if nxt else "")
+                    break
+            if bad:
+                call = ", ".join("1 + 2" if q == p else q for q in params)
+                pasted = re.sub(r"\s+", " ", re.sub(r"(?<![\w#])%s\b" % re.escape(p), "1 + 2", body))
+                report(sum(len(l) + 1 for l in lines[:start]), "c-macro-parens",
+                       "`%s` has no brackets around it, so %s(%s) becomes `%s` - the operator next to it grabs only the 2"
+                       % (p, name, call, pasted[:70]))
+                break
+
 
 def check_c(rel, text):
     out = []
     s = _c_strip(text)
     macro_words = _c_macro_words(text)
+    joined = re.sub(r"\\\n", " ", text)
+    paste_macros = [m.group(1) for m in re.finditer(r"(?m)^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)\(.*##", joined)]
     pp_alt = [m.start() for m in re.finditer(r"(?m)^[ \t]*#[ \t]*(?:else|elif|elifdef|elifndef)\b", text)]
     funcs = _c_functions(s)
     top = list(s)
     for _, _, f0, f1 in funcs:
         top[f0:f1 + 1] = [" "] * (f1 + 1 - f0)
     file_arrays = _c_arrays("".join(top))
+    noreturn_fns = set(re.findall(r"(?:_Noreturn|noreturn\)*|NORETURN)\s+(?:[A-Za-z_]\w*[\s*]+)*?([A-Za-z_]\w*)\s*\(", text))
+    for fname, _, f0, f1 in funcs:                 # a function of this file whose last line ends the program never returns
+        if re.search(r"\b(?:exit|_exit|abort|longjmp)\s*\([^;]*\)\s*;\s*$", s[f0 + 1:f1]):
+            noreturn_fns.add(fname)
     for fname, params, b0, b1 in funcs:
         body = s[b0:b1 + 1]
         types, local = _c_types(params, body)
@@ -3384,6 +3798,10 @@ def check_c(rel, text):
 
         # 7 - 12: text and buffers
         _c_buffer_checks(s, text, b0, b1, params, types, file_arrays, report)
+        # 12 - 16 (logic slips): = for ==, stray ;, fall-through, value never set, wrong printf code
+        _c_logic_checks(s, text, b0, b1, params, report, macro_words, paste_macros, noreturn_fns)
+    # 17 - macro parameters without brackets
+    _c_macro_checks(text, lambda pos, kind, detail: add(out, rel, _line(text, pos), kind, detail))
     return out
 
 
