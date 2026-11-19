@@ -247,6 +247,29 @@ RULES = {
                        "when realloc fails it gives back NULL and the old memory stays where it was, but `p = realloc(p, n)` has just overwritten "
                        "the only pointer to it: it can never be freed and p is now NULL",
                        "put the result in a new variable first: `tmp = realloc(p, n); if (tmp == NULL) { ... } p = tmp;`"),
+    "c-gets": ("decision", "gets() can never be used safely",
+               "gets() cannot be told how big the buffer is, so any line longer than it writes over the memory next to it; it was removed from C in 2011",
+               "use `fgets(buf, sizeof(buf), stdin)` (and remove the '\\n' it keeps)"),
+    "c-overflow": ("decision", "text from outside copied into a fixed-size box",
+                   "the text comes from the user, the command line or the environment, so it can be any length; when it is longer than the "
+                   "array, the copy writes past its end - the classic buffer overflow attackers use",
+                   "use `snprintf(buf, sizeof(buf), ...)`, or check `strlen()` against `sizeof(buf)` before copying"),
+    "c-overflow-param": ("idea", "a copy that trusts the caller's text length",
+                         "this function copies text it was given into a fixed-size array without checking its length; it is safe only "
+                         "while every caller passes short text",
+                         "use `snprintf(buf, sizeof(buf), \"%s\", text)`, or check `strlen(text) < sizeof(buf)` first"),
+    "c-scanf-no-width": ("decision", "scanf reading text with no size limit",
+                         "`%s` (and `%[...]`) keeps writing until the input word ends, however long it is, so a long input overflows the buffer",
+                         "give a width one less than the buffer: `%31s` for `char buf[32]`"),
+    "c-format-string": ("decision", "outside text used as a printf format",
+                        "printf reads `%` in its first text as instructions: a `%s` or `%n` typed by a user makes it read or even write memory",
+                        "print it as data: `printf(\"%s\", text)` or `fputs(text, stdout)`"),
+    "c-off-by-one": ("decision", "a loop that runs one step too far",
+                     "an array of N has places 0 to N-1; with `<=` the last turn uses place N, which belongs to something else",
+                     "use `<` instead of `<=`"),
+    "c-strlen-no-room": ("decision", "no room for the end-of-text marker",
+                         "strlen() does not count the '\\0' that ends every C string, and strcpy writes it anyway, one byte past the memory",
+                         "allocate `strlen(s) + 1`"),
     # ---------------------------------------------------------------- HTML
     "html-duplicate-id": ("decision", "the same id twice on one page",
                           "an id must be unique; scripts and labels only ever find the first element", "give each element its own id"),
@@ -2798,7 +2821,7 @@ def _c_functions(s):
             k -= 1
         if k >= 0 and s[k] == ")":
             o = _c_match_open(s, k)
-            m = re.search(r"([A-Za-z_]\w*)\s*$", s[:o]) if o > 0 else None
+            m = re.search(r"([A-Za-z_]\w*)\s*$", s[max(0, o - 200):o]) if o > 0 else None
             if m and m.group(1) not in C_CTRL:
                 out.append((m.group(1), s[o + 1:k], i, close))
                 i = close + 1
@@ -2841,7 +2864,7 @@ def _c_guard(s, i, lo):
         k -= 1
     if k > lo and s[k] == ")":
         o = _c_match_open(s, k)
-        if o > 0 and re.search(r"\b(?:if|while)\s*$", s[:o]):
+        if o > 0 and re.search(r"\b(?:if|while)\s*$", s[max(0, o - 200):o]):
             return s[o + 1:k]
     return ""
 
@@ -2853,9 +2876,9 @@ def _c_block_head(s, b, lo):
         k -= 1
     if k > lo and s[k] == ")":
         o = _c_match_open(s, k)
-        m = re.search(r"\b(for|while|if|switch)\s*$", s[lo:o]) if o > 0 else None
+        m = re.search(r"\b(for|while|if|switch)\s*$", s[max(lo, o - 200):o]) if o > 0 else None
         return m.group(1) if m else ""
-    m = re.search(r"\b(do|else)\s*$", s[lo:b])
+    m = re.search(r"\b(do|else)\s*$", s[max(lo, b - 200):b])
     return m.group(1) if m else ""
 
 
@@ -2875,7 +2898,7 @@ def _c_call_of(s, i, lo):
             if depth == 0:
                 if ch == "[":
                     return None
-                m = re.search(r"([A-Za-z_]\w*)\s*$", s[lo:k])
+                m = re.search(r"([A-Za-z_]\w*)\s*$", s[max(lo, k - 200):k])
                 return m.group(1) if m else None
             depth -= 1
         elif ch in ";{}" and depth == 0:
@@ -2957,11 +2980,180 @@ def _c_bails(s, cond_open, lo):
     return not re.search(r"\b(?:return|goto|break|continue)\b", body)
 
 
+C_ARRAY = re.compile(r"(?:(?<=[;{}(])|^)[ \t]*(?:(?:static|const|volatile|unsigned|signed|struct|union|enum|register)\s+)*"
+                     r"([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*\[\s*([^\]\[;{}=]+?)\s*\]\s*(?=[;=,])", re.M)
+C_PRINTF_CONV = re.compile(r"%[-+ #0']*(\*|\d+)?(?:\.(\*|\d*))?(?:hh|h|ll|l|L|j|z|t)?([diouxXeEfFgGaAcspn%])")
+C_SCANF_CONV = re.compile(r"%(\*)?(\d+)?(m)?(?:hh|h|ll|l|L|j|z|t)?(\[\^?\]?[^\]]*\]|[A-Za-z%])")
+C_STRLEN_SUM = r"\s*strlen\s*\([^()]*\)(?:\s*\+\s*strlen\s*\([^()]*\))*\s*(?:\*\s*sizeof\s*\(\s*char\s*\)\s*)?"
+# where the format text sits in each printf-style call
+C_FMT_AT = {"printf": 0, "vprintf": 0, "fprintf": 1, "dprintf": 1, "sprintf": 1, "vfprintf": 1, "vsprintf": 1, "syslog": 1,
+            "snprintf": 2, "vsnprintf": 2}
+
+
+def _c_arrays(code):
+    """name -> size text for the one-dimensional arrays declared in code."""
+    out = {}
+    for m in C_ARRAY.finditer(code):
+        if m.group(1) in C_CTRL or m.group(1) in ("return", "goto", "case"):
+            continue
+        out[m.group(2)] = re.sub(r"\s+", "", m.group(3))
+    return out
+
+
+def _c_args(s, o):
+    """s[o] is the '(' of a call - [(start, end)] of each argument."""
+    c = _match_close(s, o)
+    parts, depth, st = [], 0, o + 1
+    for k in range(o + 1, c):
+        ch = s[k]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append((st, k))
+            st = k + 1
+    parts.append((st, c))
+    return parts
+
+
+def _c_literal(text, a, b):
+    """The text inside the string literal(s) at text[a:b], or None if that argument is not just string literals."""
+    seg = text[a:b].strip()
+    lit = r'(?:L|u8|u|U)?"((?:[^"\\\n]|\\.)*)"'
+    if not re.match(lit, seg) or re.sub(lit, "", seg).strip():
+        return None
+    return "".join(re.findall(lit, seg))
+
+
+def _c_buffer_checks(s, text, b0, b1, params, types, file_arrays, report):
+    arrays = dict(file_arrays)
+    arrays.update(_c_arrays(s[b0:b1]))
+    body = s[b0:b1]
+    # text that comes from outside the program: char * parameters, argv, getenv(), and buffers filled by input calls
+    pnames = set(re.findall(r"([A-Za-z_]\w*)\s*(?:\[\s*\])?\s*(?=,|$)", params))
+    outside = {n for n in pnames if n in types and types[n][0] in ("char", "wchar_t")}
+    outside |= {m.group(1) for m in re.finditer(r"(?<![\w.>])([A-Za-z_]\w*)\s*=\s*(?:\([^()]*\)\s*)?(?:getenv|secure_getenv)\s*\(", body)}
+    outside |= {m.group(1) for m in re.finditer(r"(?<![\w.>])(?:fgets|gets)\s*\(\s*([A-Za-z_]\w*)\s*[,)]", body)}
+    outside |= {m.group(1) for m in re.finditer(r"(?<![\w.>])(?:read|recv)\s*\(\s*[^,()]+,\s*([A-Za-z_]\w*)\s*,", body)}
+
+    def from_outside(expr):
+        e = expr.strip()
+        m = re.fullmatch(r"(?:\(\s*(?:const\s+)?char\s*\*\s*\)\s*)?([A-Za-z_]\w*)", e)
+        if m:
+            n = m.group(1)
+            return n if n in outside and (types.get(n, ("", 0))[1] == 1 or n in arrays) else None
+        m = re.fullmatch(r"([A-Za-z_]\w*)\s*\[[^\]]+\]", e)
+        if m and m.group(1) in pnames and types.get(m.group(1), ("", 0)) == ("char", 2):
+            return m.group(1)
+        m = re.fullmatch(r"(?:secure_)?getenv\s*\(.*\)", e, re.S)
+        return "getenv" if m else None
+
+    def checked(name, pos):
+        return bool(re.search(r"\b(?:strlen|strnlen)\s*\(\s*%s\s*[,)]" % re.escape(name), s[b0:pos]))
+
+    # 7 - gets(): no way to say how big the buffer is
+    for m in re.finditer(r"(?<![\w.>])gets\s*\(", body):
+        report(b0 + m.start(), "c-gets", "gets() reads a whole line, however long, into a buffer of fixed size")
+
+    for m in re.finditer(r"(?<![\w.>])([A-Za-z_]\w*)\s*\(", body):
+        fn, o = m.group(1), b0 + m.end() - 1
+        if fn not in ("strcpy", "strcat", "sprintf", "scanf", "fscanf", "sscanf") and fn not in C_FMT_AT:
+            continue
+        args = _c_args(s, o)
+        # 8 - copying outside text into a fixed array with no length check
+        if fn in ("strcpy", "strcat", "sprintf") and len(args) >= 2:
+            dst = s[args[0][0]:args[0][1]].strip()
+            if dst in arrays:
+                srcs = []
+                if fn != "sprintf":
+                    srcs = [args[1]]
+                else:
+                    fmt = _c_literal(text, *args[1])
+                    k = 2
+                    for cv in C_PRINTF_CONV.finditer(fmt or ""):
+                        if cv.group(3) == "%":
+                            continue
+                        k += (cv.group(1) == "*") + (cv.group(2) == "*")
+                        if cv.group(3) == "s" and cv.group(2) is None and k < len(args):
+                            srcs.append(args[k])
+                        k += 1
+                for a, e in srcs:
+                    name = from_outside(s[a:e])
+                    if name and (name == "getenv" or not checked(name, o)):
+                        if name in pnames and name != "argv" and types.get(name, ("", 0))[1] == 1:
+                            report(b0 + m.start(), "c-overflow-param", "`%s` copies `%s` (passed in by the caller, any length) into `%s`, which "
+                                   "holds only %s, with no length check" % (fn, s[a:e].strip()[:40], dst, arrays[dst]))
+                        else:
+                            report(b0 + m.start(), "c-overflow", "`%s` copies `%s` (text from outside the program) into `%s`, which holds only "
+                                   "%s, with no length check" % (fn, s[a:e].strip()[:40], dst, arrays[dst]))
+                        break
+        # 9 - %s / %[ in scanf with no width: the input decides how much is written
+        if fn in ("scanf", "fscanf", "sscanf"):
+            fi = 0 if fn == "scanf" else 1
+            fmt = _c_literal(text, *args[fi]) if fi < len(args) else None
+            for cv in C_SCANF_CONV.finditer(fmt or ""):
+                if cv.group(4)[0] in "s[" and not cv.group(1) and not cv.group(2) and not cv.group(3):
+                    report(b0 + m.start(), "c-scanf-no-width", "`%%%s` in %s() has no width, so a long input writes past the end of the buffer"
+                           % (cv.group(4)[:12], fn))
+                    break
+        # 10 - printf(text): text from outside used as the format
+        if fn in C_FMT_AT and fn not in ("vprintf", "vfprintf", "vsprintf", "vsnprintf"):
+            fi = C_FMT_AT[fn]
+            if len(args) == fi + 1 and _c_literal(text, *args[fi]) is None and from_outside(s[args[fi][0]:args[fi][1]]):
+                report(b0 + m.start(), "c-format-string", "`%s` (text from outside) is used as the format of %s(); any %% in it is read as an instruction"
+                       % (s[args[fi][0]:args[fi][1]].strip()[:40], fn))
+
+    # 11 - for (i = 0; i <= N; i++) over an array of N: the last turn writes one slot past the end
+    for lm in re.finditer(r"\bfor\s*\(", body):
+        o = b0 + lm.end() - 1
+        c = _match_close(s, o)
+        parts = s[o + 1:c].split(";")
+        if len(parts) != 3:
+            continue
+        cm = re.fullmatch(r"\s*([A-Za-z_]\w*)\s*<=\s*(.+?)\s*", parts[1])
+        if not cm:
+            continue
+        v, limit = cm.group(1), re.sub(r"\s+", "", cm.group(2))
+        if not re.fullmatch(r"\s*(?:%s\s*\+\+|\+\+\s*%s|%s\s*\+=\s*1)\s*" % ((re.escape(v),) * 3), parts[2]):
+            continue
+        k = c + 1
+        while k < b1 and s[k].isspace():
+            k += 1
+        stop = _match_close(s, k) if s[k] == "{" else s.find(";", k)
+        for am in re.finditer(r"(?<![\w.>])([A-Za-z_]\w*)\s*\[\s*%s\s*\]" % re.escape(v), s[k:stop + 1]):
+            if arrays.get(am.group(1)) == limit:
+                report(o, "c-off-by-one", "`%s <= %s` also runs with %s = %s, but `%s` has only %s places (0 to %s - 1)"
+                       % (v, cm.group(2).strip(), v, cm.group(2).strip(), am.group(1), cm.group(2).strip(), cm.group(2).strip()))
+                break
+
+    # 12 - malloc(strlen(s)) then strcpy: no room for the '\0' at the end
+    for m in C_ALLOC_AT.finditer(s, b0, b1):
+        v, fn = m.group(1), m.group(2)
+        if fn != "malloc":
+            continue
+        o = m.end() - 1
+        arg = s[o + 1:_match_close(s, o)]
+        short = bool(re.fullmatch(C_STRLEN_SUM, arg))
+        if not short and re.fullmatch(r"\s*[A-Za-z_]\w*\s*", arg):
+            sets = list(re.finditer(r"(?<![\w.>])%s\s*=(?!=)\s*([^;]*);" % re.escape(arg.strip()), s[b0:m.start()]))
+            short = bool(sets) and bool(re.fullmatch(C_STRLEN_SUM, sets[-1].group(1)))
+        if short and re.search(r"(?<![\w.>])(?:strcpy|strcat|sprintf)\s*\(\s*%s\s*," % re.escape(v), s[m.end():b1]):
+            report(m.start(), "c-strlen-no-room", "`%s` gets exactly strlen() bytes, then a string is copied in: its closing '\\0' lands one byte past the end"
+                   % v)
+
+
 def check_c(rel, text):
     out = []
     s = _c_strip(text)
     macro_words = _c_macro_words(text)
-    for fname, params, b0, b1 in _c_functions(s):
+    pp_alt = [m.start() for m in re.finditer(r"(?m)^[ \t]*#[ \t]*(?:else|elif|elifdef|elifndef)\b", text)]
+    funcs = _c_functions(s)
+    top = list(s)
+    for _, _, f0, f1 in funcs:
+        top[f0:f1 + 1] = [" "] * (f1 + 1 - f0)
+    file_arrays = _c_arrays("".join(top))
+    for fname, params, b0, b1 in funcs:
         body = s[b0:b1 + 1]
         types, local = _c_types(params, body)
         lines_done = set()
@@ -2986,6 +3178,16 @@ def check_c(rel, text):
                     nxt = None
                 if nxt and (nxt.group(1) or _c_bails(s, e + 1 + nxt.end() - 1, b0)):
                     continue                     # a failed realloc ends the program here, so nothing is left to leak
+                if nxt and nxt.group(2):
+                    o = e + 1 + nxt.end() - 1
+                    k = _match_close(s, o) + 1
+                    while k < b1 and s[k].isspace():
+                        k += 1
+                    blk = s[k:(_match_close(s, k) if s[k] == "{" else s.find(";", k)) + 1]
+                    kept = [f.group(1) for f in re.finditer(r"(?<![\w.>])free\s*\(\s*([A-Za-z_]\w*)\s*\)", blk)]
+                    if any(re.search(r"(?<![\w.>])%s\s*=(?!=)\s*%s\s*;" % (re.escape(w), re.escape(m.group(2).strip())), s[b0:m.start()])
+                           for w in kept):
+                        continue                 # the old pointer was saved first and is freed when realloc fails
                 report(m.start(1), "c-realloc-self", "`%s = realloc(%s, ...)` loses the old memory when realloc fails"
                        % (m.group(1).strip(), m.group(2).strip()))
 
@@ -3107,6 +3309,9 @@ def check_c(rel, text):
                     if prev in ".>" or prev.isalnum() or prev == "_":
                         i += len(w)
                         continue
+                    if w not in ("case", "default") and re.match(r"[A-Za-z_]\w*\s*:(?!:)", s[i:]) and \
+                            s[max(0, i - 200):i].rstrip()[-1:] in (";", "{", "}"):
+                        break                    # a goto label: the code below it is reached by other paths too
                     if w in C_STOP and depth == 0:
                         if w != "break":
                             break
@@ -3128,6 +3333,8 @@ def check_c(rel, text):
                         if p >= 0 and not s[i + 6:p].strip():
                             i = _match_close(s, p) + 1
                             continue
+                    if w == base and any(fm.end() < p < i for p in pp_alt):
+                        break                    # an #else / #elif in between: the two lines never both run
                     if w == base:
                         pm = path_re.match(s, i)
                         j = pm.end() if pm else i + len(w)
@@ -3174,6 +3381,9 @@ def check_c(rel, text):
             if re.search(r"(?<![\w.>])free\s*\(\s*%s\s*\)" % re.escape(v), s[k:stop + 1]):
                 report(b0 + lm.start(), "c-use-after-free",
                        "the loop frees `%s`, then its step `%s` reads the memory it just freed" % (v, parts[2].strip()))
+
+        # 7 - 12: text and buffers
+        _c_buffer_checks(s, text, b0, b1, params, types, file_arrays, report)
     return out
 
 
