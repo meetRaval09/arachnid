@@ -48,6 +48,10 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      localhost in the dev server's own start script.
      Still found: `onClick={save()}`, a link to a heading that really is missing, a function nobody uses, an awaited
      fetch whose error nobody gets, localhost in app code - and Keycloak's real `.forEach(async ...)`.
+ 10. Quarkus web UI, third scan: `var(--lumo-contrast-20pct)` called undefined although the page links lumo.css (through a
+     server path the scan cannot open), and z-index on `#swagger-ui .download-url-input` called useless although Swagger
+     builds that markup (in a flex box) itself. Real counterparts: a misspelled variable of the project's own, and z-index
+     without position on the project's own markup.
 """
 import base64
 import json
@@ -495,6 +499,39 @@ def main():
         check("an awaited fetch whose error nobody gets is still found", bool(kinds("no-error-handling")), str(sorted({e.get('kind') for e in got})))
         check("localhost in app code is still found", bool(kinds("localhost-left")), str(sorted({e.get('kind') for e in got})))
         check("Keycloak's real `.forEach(async ...)` is still found", bool(kinds("js-foreach-async")), str(sorted({e.get('kind') for e in got})))
+
+        print("Case: Quarkus web UI, third scan (what was wrongly reported)")
+        qw = tmp / "quarkus-web"
+        (qw / "dev-ui").mkdir(parents=True)
+        (qw / "branding").mkdir(parents=True)
+        (qw / "dev-ui" / "index.html").write_text(
+            "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Dev UI</title>\n"
+            "<link rel=\"stylesheet\" href=\"{nonApplicationRoot}_static/at/vaadin/vaadin-lumo-styles/{vaadinVersion}/lumo.css\">\n"
+            "<style>\n:root { --lumo-contrast-70pct: rgba(0,0,0,.7); }\n"
+            "::-webkit-scrollbar-thumb { background: var(--lumo-contrast-20pct); }\n</style>\n</head>\n"
+            "<body><main><h1>Dev UI</h1></main></body>\n</html>\n", encoding="utf-8")
+        (qw / "branding" / "open-api-ui.css").write_text(
+            "#swagger-ui .download-url-input {\n    z-index: 1;\n    min-width: 150px;\n}\n", encoding="utf-8")
+        got = scan(qw)
+        check("--lumo-* from the linked lumo.css is defined", not kinds("css-undefined-var"), str(kinds("css-undefined-var")))
+        check("z-index on a library widget (#swagger-ui ...) is not reported", not kinds("css-zindex-no-position"),
+              str(kinds("css-zindex-no-position")))
+
+        print("Case: the same shapes, but real problems")
+        rw = tmp / "real-web"
+        rw.mkdir()
+        (rw / "index.html").write_text(
+            "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Shop</title>\n"
+            "<link rel=\"stylesheet\" href=\"https://cdn.example.com/lumo.css\">\n<link rel=\"stylesheet\" href=\"style.css\">\n</head>\n"
+            "<body><div id=\"shop\"><p class=\"badge\">New</p></div></body>\n</html>\n", encoding="utf-8")
+        (rw / "style.css").write_text(
+            ":root { --brand-color: #2ea84a; }\nh1 { color: var(--brand-colour); }\n#shop .badge {\n    z-index: 5;\n}\n", encoding="utf-8")
+        got = scan(rw)
+        check("a misspelled variable of the project's own is still found", bool(kinds("css-undefined-var")), str(sorted({e.get('kind') for e in got})))
+        check("z-index without position on the project's own markup is still found", bool(kinds("css-zindex-no-position")),
+              str(sorted({e.get('kind') for e in got})))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

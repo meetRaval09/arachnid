@@ -2360,7 +2360,7 @@ def check_css_more(rel, text, code, out):
 def css_variable_checks(texts):
     """var(--name) where --name is defined nowhere in the project"""
     out = []
-    defined, uses, external = set(), [], False
+    defined, uses, external, families = set(), [], False, set()
     for rel, t in texts.items():
         ext = rel.rsplit(".", 1)[-1].lower()
         if ext not in ("css", "html", "htm", "js", "mjs", "jsx", "ts", "tsx", "vue", "svelte", "scss", "less"):
@@ -2375,14 +2375,20 @@ def css_variable_checks(texts):
             external = True                           # styles that are built or injected: can't see every definition
         if re.search(r"""<link[^>]+href=["'](https?:)?//[^"']+\.css|@import\s+(url\()?["']?(?!\.|/)[\w@]|import\s+["'][^."'/][^"']*\.css["']""", t):
             external = True
+        for lm in re.finditer(r"""<link\b[^>]*\bhref=["']([^"']+\.css)(?:\?[^"']*)?["']""", t):
+            href = lm.group(1)
+            local = posixpath.normpath(posixpath.join(posixpath.dirname(rel), href.lstrip("/")))
+            if re.search(r"\{|\$|//", href) or local not in texts:
+                external = True                       # a style sheet from a library or a server path: its variables are out of sight
+                families |= {w.lower() for w in re.findall(r"[A-Za-z]{3,}", href)}
         if ext in ("css", "html", "htm"):
             code = _css_strip(t) if ext == "css" else t
             for m in re.finditer(r"var\(\s*(--[A-Za-z0-9_-]+)\s*\)", code):
                 uses.append((rel, t, m))
     for rel, t, m in uses:
         name = m.group(1)
-        if name in defined:
-            continue
+        if name in defined or name[2:].split("-")[0].lower() in families:
+            continue                                  # --lumo-... with lumo.css linked: defined by that library
         close = sorted((_typo_distance(name, d), d) for d in defined if abs(len(d) - len(name)) <= 2)
         close = [d for dist, d in close if dist <= 2]
         if external and not close:
@@ -2392,7 +2398,7 @@ def css_variable_checks(texts):
     return out
 
 
-def check_css(rel, text):
+def check_css(rel, text, rendered=None):
     out = []
     code = _css_strip(text)
     if "#{" in code or re.search(r"(^|\n)\s*[$@][\w-]+\s*:", code):
@@ -2414,6 +2420,11 @@ def check_css(rel, text):
     for sel, off in zrules:
         last = [re.split(r"[\s>+~]+", x.strip())[-1] for x in sel.split(",")]
         marks = set(re.findall(r"[.#][\w-]+", " ".join(last)))
+        roots = [re.split(r"[\s>+~]+", x.strip()) for x in sel.split(",")]
+        widget = rendered is not None and all(len(r) > 1 and re.findall(r"[.#]([\w-]+)", r[0]) and
+                                              not any(n in rendered for n in re.findall(r"[.#]([\w-]+)", r[0])) for r in roots)
+        if widget:
+            continue                                  # #swagger-ui .x: restyling markup a library builds - its layout (flex?) is out of sight
         if marks and not (marks & positioned) and not flex_file and not re.search(r":(before|after)\b|dialog|popover|\[open\]", sel):
             add(out, rel, _line(text, off), "css-zindex-no-position", "`%s` has z-index but no position" % sel[:40])
     for m in TABLE_TR.finditer(re.sub(r"\{[^{}]*\}", lambda b: re.sub(r"[^\n]", " ", b.group(0)), code)):
@@ -4101,6 +4112,13 @@ def check(root):
         except (OSError, UnicodeDecodeError):
             continue
     slugs_of = {r: _md_parts(t)[1] for r, t in texts.items() if r.lower().endswith((".md", ".markdown"))}
+    # every class / id name the project's own pages and scripts can put on an element
+    rendered = set()
+    for r, t in texts.items():
+        if not r.lower().endswith((".css", ".scss", ".less", ".md", ".markdown", ".json")):
+            for vm in re.finditer(r"""\b(?:class|className|id|class:list)\s*=\s*["'{`]([^"'`}]*)|classList\.(?:add|toggle|replace)\(([^)]*)\)|"""
+                                  r"""\.(?:id|className)\s*=\s*["'`]([^"'`]+)|setAttribute\(\s*["'](?:id|class)["']\s*,\s*["'`]([^"'`]+)""", t):
+                rendered |= set(re.findall(r"[A-Za-z_][\w-]*", " ".join(g for g in vm.groups() if g)))
     # the project's own assert() that is never switched off (Redis serverAssert style): side effects in it are safe
     c_assert_on = any(re.search(r"(?m)^\s*#\s*define\s+assert\s*\(", t) for r, t in texts.items() if r.lower().endswith(".h"))
     for rel, text in texts.items():
@@ -4116,7 +4134,7 @@ def check(root):
                 found += fs
                 pages[rel] = page
             elif ext == "css":
-                found += check_css(rel, text)
+                found += check_css(rel, text, rendered)
             elif ext == "json":
                 found += check_json(rel, text, project.root, files)
             elif ext in ("md", "markdown"):
