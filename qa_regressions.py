@@ -56,6 +56,9 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      overwritten import (so was `import click` + `import click.core`), and a list default that is only looped over called a shared mutable default.
      Real counterparts: two plain imports of the same name, and list/dict defaults that are changed, stored into,
      returned or handed on.
+ 12. ASML dagster-uc: kube / kwargs / buildah / acr / webserver called typos (kube -> tube), "noone" offered the
+     fix "none" instead of "no one", and `from kr8s.objects import Role as Role` (the standard "shared on purpose"
+     form) called an unused import. Real counterparts: a real typo next to them, and a plain unused import.
 """
 import base64
 import json
@@ -570,6 +573,25 @@ def main():
               str(sorted({e.get('kind') for e in got})))
         check("list/dict defaults that are changed or returned are still found (3)", len(kinds("mutable-default")) == 3,
               str(kinds("mutable-default")))
+
+        print("Case: ASML dagster-uc (what was wrongly reported)")
+        du = tmp / "dagster-uc"
+        du.mkdir()
+        (du / "README.md").write_text(
+            "# Deploy tool\n\nSet the kube context first. The webserver reads the image from acr, built with buildah.\n\n"
+            "Extra kwargs are passed on. It used to have a special meaning, but noone uses it. This depoyment is new.\n",
+            encoding="utf-8")
+        (du / "handler.py").write_text(
+            "import json\nfrom collections import OrderedDict as OrderedDict\n\n\n"
+            "def run():\n    return 1\n", encoding="utf-8")
+        got = scan(du)
+        bad = [k for k in kinds("spelling") if any(w in k[3] for w in ("kube", "kwargs", "buildah", "acr ", "webserver"))]
+        check("kube / kwargs / buildah / acr / webserver are not typos", not bad, str(bad))
+        check("'noone' is fixed as 'no one', not 'none'", any("no one" in k[3] for k in kinds("spelling")), str(kinds("spelling")))
+        check("a real typo next to them is still found", any("depoyment" in k[3] for k in kinds("spelling")), str(kinds("spelling")))
+        un = [k[3] for k in kinds("unused-import")]
+        check("`import X as X` is not an unused import", not any("OrderedDict" in u for u in un), str(un))
+        check("a plain unused import is still found", any("json" in u for u in un), str(un))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

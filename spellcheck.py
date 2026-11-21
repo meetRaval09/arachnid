@@ -74,8 +74,13 @@ for _e in "html htm".split():
 for _e in "md txt".split():
     EXT_KIND[_e] = "prose"
 
+# Two everyday words typed as one - the closest single word ("none") would be the wrong fix.
+JOINED = {"noone": "no one", "alot": "a lot", "eachother": "each other", "infact": "in fact",
+          "atleast": "at least", "aswell": "as well", "incase": "in case"}
+
 # Words that are normal in code but missing from an everyday English dictionary.
 TECH_WORDS = set("""
+kube kubectl kubeconfig kubecontext kwargs buildah podman acr ecr gcr webserver pyenv venv virtualenv checksum checksums dtype dtypes
 chiptune chiptunes synthwave lofi vaporwave 8bit 16bit
 ok okay todo fixme etc eg ie vs aka faq asap info config configs repo repos demo demos docs doc util utils
 init param params args arg func impl obj objs prev idx btn btns nav img imgs src dest tmp temp env dev prod
@@ -556,6 +561,9 @@ class Engine:
 
     def suggest(self, lw):
         if lw in self.cache:
+            return self.cache[lw]
+        if lw in JOINED:
+            self.cache[lw] = ["medium", [JOINED[lw]]]      # two words typed as one: the fix has a space in it
             return self.cache[lw]
         out = []
         cands = None

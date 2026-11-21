@@ -478,6 +478,8 @@ class PyFile:
                     continue
                 if is_init:
                     continue                                    # package __init__ files re-export on purpose
+                if al.asname and al.asname == al.name:
+                    continue                                    # `import X as X`: the standard way to say "shared on purpose"
                 if quiet is None:
                     quiet = self.proj.import_is_quiet(self.rel, node)
                 if blocked:
