@@ -67,6 +67,11 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      words with accents (Priorität -> "Priorit"), the Maven option `-Dquickly`, "log in in the browser" (a two-word verb)
      and "day-of-month month" called repeated words - and "log in in" would even have been auto-fixed. Real counterparts:
      typos in the English file next to them, a real "the the".
+ 15. Angular, full scan: ~1,480 "broken links" that are angular.dev routes written from the content root
+     (guide/di/overview, /api/core/inject), an anchor made by <docs-step title="..."> called missing, an icon font
+     word next to its label ("edit Edit"), package names in <docs-code> ("@tailwindcss/postcss postcss"), JSDoc
+     "@see See", "</a>." on a new line read as " .", and TypeScript's ts.createProgram() called a WebGL leak.
+     Real counterparts: a link to a missing .md file, a missing heading, a real "run run", a real WebGL leak.
 """
 import base64
 import json
@@ -686,6 +691,51 @@ def main():
         check("a real 'the the' is still found", any("the the" in r.lower() for r in rw), str(rw))
         en = [k[3] for k in kinds("spelling") if "en.js" in (k[1] or "")]
         check("typos in the English translation file are still found (2)", sum(1 for w in en if re.search(r"curent|asume", w)) == 2, str(en))
+
+        print("Case: Angular full scan (what was wrongly reported)")
+        ng = tmp / "angular"
+        (ng / "content" / "guide" / "di").mkdir(parents=True)
+        (ng / "content" / "guide" / "di" / "overview.md").write_text("# DI\n\nDependency injection explained in a short page.\n", encoding="utf-8")
+        (ng / "content" / "guide" / "images.md").write_text(
+            "# Images\n\nRead the [DI guide](guide/di/overview) and the [inject API](/api/core/inject) before you start here.\n\n"
+            "Generated with a [loader](#optional-set-up-a-loader) when one is set.\n\n"
+            "<docs-step title=\"(Optional) Set up a Loader\">\nPick a loader for the images.\n</docs-step>\n\n"
+            "<docs-code header=\"npm\" language=\"shell\">\n  npm install tailwindcss @tailwindcss/postcss postcss\n</docs-code>\n\n"
+            "@see See what polyfills you might need in the browser support guide.\n\n"
+            "<a href=\"https://developer.mozilla.org/\">\n  Standard JavaScript class constructor\n</a>. Runs when the component is made.\n",
+            encoding="utf-8")
+        (ng / "app").mkdir()
+        (ng / "app" / "menu.html").write_text(
+            "<div class=\"menu\">\n  <div class=\"item\">\n    <span class=\"icon material-symbols-outlined\" aria-hidden=\"true\">edit</span>\n"
+            "    <span class=\"label\">Edit</span>\n  </div>\n</div>\n", encoding="utf-8")
+        (ng / "app" / "compile.ts").write_text(
+            "import * as ts from 'typescript';\nexport function build(files: string[]) {\n"
+            "  const program = ts.createProgram(files, {});\n  return program.emit();\n}\n", encoding="utf-8")
+        got = scan(ng)
+        check("docs-site links from the content root (guide/di/overview, /api/core/inject) are not broken links",
+              not kinds("md-broken-link"), str(kinds("md-broken-link")))
+        check("an anchor made by <docs-step title=...> is not a missing heading", not kinds("md-broken-anchor"), str(kinds("md-broken-anchor")))
+        check("an icon word next to its label, <docs-code> commands and '@see See' are not repeated words",
+              not kinds("repeated-word"), str(kinds("repeated-word")))
+        check("'</a>.' on the next line is not a space before a full stop", not kinds("space-before-punct"), str(kinds("space-before-punct")))
+        check("TypeScript's ts.createProgram() is not a WebGL leak",
+              not [e for e in got if e.get("kind") == "leak" and "WebGL" in json.dumps(e)], "")
+
+        print("Case: the same shapes, but real problems")
+        nr = tmp / "angular-real"
+        (nr / "content" / "guide").mkdir(parents=True)
+        (nr / "content" / "guide" / "start.md").write_text(
+            "# Start\n\nSee the [setup notes](./setup.md) and the [missing section](#install-steps) for more.\n\n"
+            "The benchmark will run run the garbage collector before each sample.\n", encoding="utf-8")
+        (nr / "gl.js").write_text(
+            "const gl = document.querySelector('canvas').getContext('webgl');\n"
+            "export function draw() {\n  const buf = gl.createBuffer();\n  gl.bindBuffer(gl.ARRAY_BUFFER, buf);\n}\n", encoding="utf-8")
+        got = scan(nr)
+        check("a link to a missing .md file is still found", bool(kinds("md-broken-link")), str(sorted({e.get('kind') for e in got})))
+        check("a link to a missing heading is still found", bool(kinds("md-broken-anchor")), str(sorted({e.get('kind') for e in got})))
+        check("a real 'run run' is still found", any("run run" in k[3] for k in kinds("repeated-word")), str(kinds("repeated-word")))
+        check("a real WebGL buffer that is never deleted is still found",
+              bool([e for e in got if e.get("kind") == "leak" and "WebGL" in json.dumps(e)]), str(sorted({e.get('kind') for e in got})))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))

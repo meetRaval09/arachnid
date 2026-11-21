@@ -70,7 +70,7 @@ rule("repeated-word", r"\b([A-Za-z]{2,})(\s+)(?!(?-i:CODE|URL)\b)\1\b", "high", 
      lambda m: m.group(1),
      lambda m: "You typed '%s' twice in a row. Readers trip over it and it looks careless. Delete one." % m.group(1),
      exclude=lambda m: m.group(1).lower() in {"had", "that", "bye", "no", "very", "so", "knock", "duran", "yo", "blah", "ha", "hello", "go", "boom"} or m.group(1).isupper()
-     or (m.start() > 0 and m.string[m.start() - 1] in "-_.")               # "day-of-month month": the first one ends a longer word
+     or (m.start() > 0 and m.string[m.start() - 1] in "-_./@")             # "day-of-month month", "@tailwindcss/postcss postcss", "@see See"
      or (m.group(1).lower() in ("in", "on", "up", "out", "off", "over", "down") and
          re.search(r"(?i)\b(log|logs|logged|logging|sign|signs|signed|signing|check|checks|checked|checking|plug|plugged|"
                    r"opt|opted|fill|filled|turn|turned|set|built|build|log|back|carry|carried|come|came|break|broke|"
@@ -211,8 +211,12 @@ def paragraphs_doc(text, ext):
     for n in range(start, len(lines)):
         raw = lines[n].rstrip("\r")
         if ext in ("md", "mdx"):
-            if in_pre or re.match(r"^\s*<pre[\s>]", raw, re.I):
-                in_pre = "</pre>" not in raw.lower()
+            pm = None if in_pre else re.match(r"^\s*<(pre|[\w-]*code[\w-]*)[\s>]", raw, re.I)
+            if in_pre or pm:
+                if pm:
+                    in_pre = pm.group(1).lower()                       # <pre>, <docs-code>, <code-example> ...
+                if "</%s>" % in_pre in raw.lower() or (pm and re.search(r"/>\s*$", raw)):
+                    in_pre = False
                 flush()
                 continue                                   # <pre> ... </pre>: code, not sentences
             if FENCE.match(raw):
@@ -252,19 +256,37 @@ class VisibleText(HTMLParser):
     INLINE = {"a", "b", "i", "em", "strong", "span", "small", "abbr", "mark", "sub", "sup", "u", "s", "q", "cite",
               "time", "label", "font", "bdi", "bdo", "dfn", "var", "data", "del", "ins"}
 
+    ICON = re.compile(r"(?i)\b(?:material-(?:symbols|icons)[\w-]*|icon|icons|fa|fas|far|fab|bi|glyphicon|codicon)\b")
+    VOID = {"br", "img", "input", "hr", "meta", "link", "source", "wbr", "area", "col", "embed", "track", "param"}
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.depth = 0
         self.chunks = []
         self.open = False           # True while the last chunk may still continue (only inline tags since)
+        self.hidden = []            # [tag, nesting] of an icon / aria-hidden element we are inside
 
     def handle_starttag(self, tag, attrs):
+        if self.hidden and tag == self.hidden[-1][0]:
+            self.hidden[-1][1] += 1
+        elif tag not in self.VOID:
+            a = dict(attrs)
+            # <span class="material-symbols-outlined" aria-hidden="true">edit</span> Edit: the first "edit" is an
+            # icon drawn from a font, not a word anyone reads
+            if (a.get("aria-hidden") or "").lower() == "true" or self.ICON.search(a.get("class") or ""):
+                self.hidden.append([tag, 1])
+                self.depth += 1
         if tag in self.SKIP:
             self.depth += 1
         if tag not in self.INLINE:
             self.open = False
 
     def handle_endtag(self, tag):
+        if self.hidden and tag == self.hidden[-1][0]:
+            self.hidden[-1][1] -= 1
+            if not self.hidden[-1][1]:
+                self.hidden.pop()
+                self.depth -= 1
         if tag in self.SKIP and self.depth:
             self.depth -= 1
         if tag not in self.INLINE:
@@ -329,7 +351,9 @@ def analyse_file(rel, text, ext):
     out = []
     seen_sent = Counter()
     for para in paras:
-        joined = " ".join(t for _, t in para)
+        # a line that starts with punctuation continues the one before it ("...constructor\n</a>. Runs"): join it
+        # without a visible space (same length, so line numbers still line up), or it reads as "constructor . Runs"
+        joined = "".join((("\u200b" if t[:1] in ".,;:!?)" else " ") if k else "") + t for k, (_, t) in enumerate(para))
         if len(joined.split()) < 2:
             continue
         starts, pos = [], 0

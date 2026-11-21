@@ -72,6 +72,8 @@ LEAK_RULES = [
          tip="3D objects live in graphics memory, which the browser does NOT clean automatically; call .dispose() when a scene or object is removed"),
     dict(id="webgl-raw-never-deleted", fam=JS, conf="medium", mode="none",
          open=r"\.create(?:Texture|Buffer|Framebuffer|Program|Shader|Renderbuffer)\(", close=r"\.delete(?:Texture|Buffer|Framebuffer|Program|Shader|Renderbuffer)\(",
+         need=r"getContext\(\s*['\"](?:webgl2?|experimental-webgl)|WebGL2?RenderingContext|\bgl\.(?:bindBuffer|useProgram|drawArrays|drawElements)\(",
+         # only in files that really use WebGL - TypeScript's ts.createProgram() builds a compiler, not a shader
          msg="creates WebGL resources but never deletes any", tip="free graphics-memory objects with the matching delete... call when they are no longer needed"),
     dict(id="observer-never-disconnected", fam=JS, conf="low", mode="none",
          open=r"new\s+(?:IntersectionObserver|ResizeObserver|MutationObserver)\(", close=r"\.(?:disconnect|unobserve)\(",
@@ -271,6 +273,8 @@ def leaks_and_memory(proj):
             if fam not in r["fam"]:
                 continue
             if r.get("skip_ext") and x in r["skip_ext"]:
+                continue
+            if r.get("need") and not re.search(r["need"], text):
                 continue
             if r.get("skip_if") and re.search(r["skip_if"], body):
                 continue

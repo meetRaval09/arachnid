@@ -2561,9 +2561,55 @@ def _md_parts(text):
             slugs.append(s if n == 0 else "%s-%d" % (s, n))
     for m in re.finditer(r"<[a-z][^>]*\b(?:name|id)\s*=\s*[\"']([^\"']+)", text, re.I):
         slugs.append(m.group(1).lower())
+    for m in re.finditer(r"<[a-z][\w-]*-[\w-]*\s[^>]*\btitle\s*=\s*\"([^\"]+)\"", text, re.I):
+        slugs.append(_slug(m.group(1)))          # docs-site components: <docs-step title="Create Hello World"> makes #create-hello-world
     for m in re.finditer(r"^\[\^([^\]]+)\]:", text, re.M):                              # footnotes
         slugs += ["fn-" + m.group(1).lower(), "user-content-fn-" + m.group(1).lower()]
     return out, slugs, (fence_line if fence else None)
+
+
+def _md_exists(cand, files):
+    cand = cand.rstrip("/")
+    return any(c in files for c in (cand, cand + ".md", cand + ".mdx", cand + "/README.md", cand + "/index.md", cand + ".html")) \
+        or any(f.startswith(cand + "/") for f in files)
+
+
+def _md_site_root_link(path, base, files):
+    """Docs sites (angular.dev, Docusaurus, MkDocs ...) often write links from the content root, without ./ or ../
+    and without .md: [guide](guide/di/overview). True = found that way, None = a generated page we cannot check
+    (its first folder exists nowhere above this file), False = really missing."""
+    if path.startswith("."):
+        return False
+    named_file = "." in path.rstrip("/").rsplit("/", 1)[-1]
+    path = path.lstrip("/")
+    if not path:
+        return None                              # "/" - the site's home page
+    if _md_exists(posixpath.normpath(posixpath.join(base, path)), files):
+        return True
+    if not named_file:
+        # no file name, just a route (/guide/signals/resource, api/core/inject): docs sites map routes to pages in
+        # their own config, so a route that is not a file here proves nothing - say nothing rather than guess
+        parts = base.split("/") if base else []
+        for k in range(len(parts), -1, -1):
+            anc = "/".join(parts[:k])
+            if _md_exists(posixpath.join(anc, path) if anc else path, files):
+                return True
+        return None
+    first = path.split("/")[0]
+    parts = base.split("/") if base else []
+    known_root = False
+    for k in range(len(parts), -1, -1):
+        anc = "/".join(parts[:k])
+        cand = posixpath.join(anc, path) if anc else path
+        if _md_exists(cand, files):
+            return True
+        if "/" in path and _md_exists(posixpath.join(anc, first) if anc else first, files):
+            known_root = True
+    if known_root:
+        return False                             # guide/ exists, but guide/that-page does not: a real broken link
+    if "." in path.rsplit("/", 1)[-1]:
+        return False                             # a file name (x.md, logo.png) that is nowhere: missing
+    return None if "/" in path or base else False
 
 
 def check_md(rel, text, files, slugs_of):
@@ -2603,6 +2649,11 @@ def check_md(rel, text, files, slugs_of):
             if full.startswith(".."):
                 continue                             # outside the project (e.g. ../../issues on GitHub)
             if full not in files and not any(f.startswith(full.rstrip("/") + "/") for f in files):
+                site = _md_site_root_link(path, base, files)
+                if site is True:
+                    continue                         # a docs-site link written from the content root: guide/di/x -> content/guide/di/x.md
+                if site is None:
+                    continue                         # a page the site makes at build time (api/core/X, cli/build): nothing to check
                 add(out, rel, i, "md-broken-link", "`%s` does not exist" % path[:50])
             elif frag and full.lower().endswith(".md") and full in slugs_of and slugs_of[full] and frag.lower() not in slugs_of[full]:
                 add(out, rel, i, "md-broken-anchor", "%s#%s" % (path[:30], frag[:30]))
