@@ -69,7 +69,14 @@ def rule(rid, pat, conf, fix, repl, blunt, flags=I, pages=True, exclude=None):
 rule("repeated-word", r"\b([A-Za-z]{2,})(\s+)(?!(?-i:CODE|URL)\b)\1\b", "high", True,
      lambda m: m.group(1),
      lambda m: "You typed '%s' twice in a row. Readers trip over it and it looks careless. Delete one." % m.group(1),
-     exclude=lambda m: m.group(1).lower() in {"had", "that", "bye", "no", "very", "so", "knock", "duran", "yo", "blah", "ha", "hello", "go", "boom"} or m.group(1).isupper())
+     exclude=lambda m: m.group(1).lower() in {"had", "that", "bye", "no", "very", "so", "knock", "duran", "yo", "blah", "ha", "hello", "go", "boom"} or m.group(1).isupper()
+     or (m.start() > 0 and m.string[m.start() - 1] in "-_.")               # "day-of-month month": the first one ends a longer word
+     or (m.group(1).lower() in ("in", "on", "up", "out", "off", "over", "down") and
+         re.search(r"(?i)\b(log|logs|logged|logging|sign|signs|signed|signing|check|checks|checked|checking|plug|plugged|"
+                   r"opt|opted|fill|filled|turn|turned|set|built|build|log|back|carry|carried|come|came|break|broke|"
+                   r"look|looked|clean|cleaned|pick|picked|show|showed|start|started|sort|sorted|give|gave|take|took|"
+                   r"zoom|zoomed|scroll|scrolled|roll|rolled|spin|spun|try|tried|hand|handed|stand|stood)\s+$",
+                   m.string[max(0, m.start() - 20):m.start()])))   # "log in in the browser": a two-word verb, then 'in the ...'
 rule("their-there", r"\b(their)\s+(is|are|was|were|will|has|have|isn't|aren't)\b", "high", True,
      lambda m: recase(m.group(1), "there") + " " + m.group(2),
      lambda m: "'their' means 'belonging to them'. '%s %s' needs 'there' (the place/existence word). As written it reads as nonsense." % (m.group(1), m.group(2)))

@@ -88,7 +88,7 @@ JOINED = {"noone": "no one", "alot": "a lot", "eachother": "each other", "infact
 TECH_WORDS = set("""
 kube kubectl kubeconfig kubecontext kwargs buildah podman acr ecr gcr webserver pyenv venv virtualenv checksum checksums dtype dtypes
 struct structs tuple tuples bitfield bitfields dict dicts multi ruleset rulesets genrule genrules matlab opam libelf libdw itanium
-makie charset charsets breakpoint codepage elif endif ifdef ifndef typedef sizeof performant
+makie charset charsets breakpoint codepage elif endif ifdef ifndef typedef sizeof performant mssql commandline
 chiptune chiptunes synthwave lofi vaporwave 8bit 16bit
 ok okay todo fixme etc eg ie vs aka faq asap info config configs repo repos demo demos docs doc util utils
 init param params args arg func impl obj objs prev idx btn btns nav img imgs src dest tmp temp env dev prod
@@ -441,6 +441,10 @@ def iter_words(src, start, end, kind, flag):
         nxt = seg[b] if b < len(seg) else ""
         if prev and (prev in "._/\\@#$&=%" or prev.isdigit()):
             continue
+        if (prev and prev.isalpha() and ord(prev) > 127) or (nxt and nxt.isalpha() and ord(nxt) > 127):
+            continue                                    # part of a word with accents (Priorität, exécution): not English
+        if prev == "-" and (a < 2 or not seg[a - 2].isalnum()):
+            continue                                    # a command-line option: -Dquickly, -Xmx, -verbose
         if nxt and (nxt in "_/\\@=(" or nxt.isdigit()):
             continue
         if nxt == "." and b + 1 < len(seg) and seg[b + 1].isalnum():
@@ -678,8 +682,27 @@ def ident_words(text, regs, kind):
     return c
 
 
+LANG_FILE = re.compile(r"^(?:messages|strings|labels|i18n|locale|lang)?[_.-]?([a-z]{2,3})(?:[-_][A-Za-z]{2,4})?$")
+LANG_CODES = set("""de fr it es pt nl sv da no nb nn fi pl cs sk sl hr sr bg ro hu el tr ru uk be lt lv et ga cy eu ca gl
+ja zh ko vi th id ms tl hi bn ta te mr gu kn ml pa ur fa he ar sw af sq hy az ka kk uz mn ne si km lo my is mt lb""".split())
+
+
+def is_translation(rel):
+    """A translation file (i18n/de.js, messages_fr.properties, locales/pt-BR.json) is not English - its words are not typos."""
+    parts = rel.lower().split("/")
+    stem = parts[-1].rsplit(".", 1)[0]
+    m = LANG_FILE.match(stem)
+    if not (m and m.group(1) in LANG_CODES):
+        return False
+    folder = any(p in ("i18n", "l10n", "locale", "locales", "lang", "langs", "translations", "messages") for p in parts[:-1])
+    marked = stem != m.group(1)                         # messages_fr, pt-BR, it-IT: clearly a language
+    return folder or marked                             # a bare id.js / is.js / es.js elsewhere is just a file
+
+
 def scan_file(path, root):
     ext = path.name.lower().rsplit(".", 1)[-1]
+    if is_translation(path.relative_to(root).as_posix()):
+        return None
     kind = EXT_KIND[ext]
     try:
         with open(path, encoding="utf-8", newline="") as fh:

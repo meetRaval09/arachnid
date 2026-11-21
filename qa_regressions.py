@@ -63,6 +63,10 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      highlight.pack.js and in word lists (nouns.txt), "an XML" called wrong, Franklin.jl site pieces (_layout/,
      ~~~<h4>..</h4>~~~, /libs/ built from _libs/) called broken, and numbered steps / <pre> code / sentences whose
      `code` differs called repeated sentences. Real counterparts: "an new", a real typo, a truly repeated sentence.
+ 14. Quarkus, full scan: ~1,400 "typos" in the Dev UI translation files (i18n/de.js, fr.js, pt-BR.js ...) and in
+     words with accents (Priorität -> "Priorit"), the Maven option `-Dquickly`, "log in in the browser" (a two-word verb)
+     and "day-of-month month" called repeated words - and "log in in" would even have been auto-fixed. Real counterparts:
+     typos in the English file next to them, a real "the the".
 """
 import base64
 import json
@@ -651,6 +655,37 @@ def main():
         check("'an new' is still found", bool(kinds("article-an-a")), str(sorted({e.get('kind') for e in got})))
         check("a real typo (enviroments) is still found", any("enviroments" in k[3] for k in kinds("spelling")), str(kinds("spelling")))
         check("a truly repeated sentence is still found", bool(kinds("repeated-sentence")), str(sorted({e.get('kind') for e in got})))
+
+        print("Case: Quarkus full scan (what was wrongly reported)")
+        qf = tmp / "quarkus-full"
+        (qf / "dev-ui" / "i18n").mkdir(parents=True)
+        (qf / "dev-ui" / "i18n" / "de.js").write_text(
+            "export const templates = {\n  'quarkus-agroal-chart': 'Diagramm anzeigen und lesen',\n"
+            "  'quarkus-agroal-start': 'Beginn der Abfrage, bitte filtern',\n};\n", encoding="utf-8")
+        (qf / "dev-ui" / "i18n" / "pt-BR.js").write_text(
+            "export const templates = {\n  'quarkus-hello': 'Olá mundo, o progresso dos passos',\n};\n", encoding="utf-8")
+        (qf / "dev-ui" / "i18n" / "en.js").write_text(
+            "export const templates = {\n  'quarkus-hello': 'Shows the curent datasource when you asume it is ready',\n};\n",
+            encoding="utf-8")
+        (qf / "dev-ui" / "labels.js").write_text(
+            "export const label = 'Priorität der Ausführung für alle Aufträge';\n", encoding="utf-8")
+        (qf / "CONTRIBUTING.md").write_text(
+            "# Contributing\n\nBuild it quickly with `./mvnw` and the [-Dquickly](#-dquickly) option when you only want the jars.\n\n"
+            "Then log in in the browser window it will open, if you are not already logged in.\n\n"
+            "Quartz cron uses six fields (seconds minutes hours day-of-month month day-of-week) by default here.\n\n"
+            "Run the the tests before you send the pull request to the team.\n", encoding="utf-8")
+        got = scan(qf)
+        tr = [k for k in kinds("spelling") if "/i18n/de.js" in (k[1] or "") or "pt-BR" in (k[1] or "")]
+        check("translation files (i18n/de.js, pt-BR.js) are not spell-checked as English", not tr, str(tr))
+        acc = [k for k in kinds("spelling") if re.search(r"Priorit|Ausf|Auftr", k[3])]
+        check("pieces of words with accents (Priorität) are not typos", not acc, str(acc))
+        check("the Maven option -Dquickly is not a typo", not [k for k in kinds("spelling") if "Dquickly" in k[3]], str(kinds("spelling")))
+        rw = [k[3] for k in kinds("repeated-word")]
+        check("'log in in the browser' and 'day-of-month month' are not repeated words",
+              not any(("in in" in r) or ("month month" in r) for r in rw), str(rw))
+        check("a real 'the the' is still found", any("the the" in r.lower() for r in rw), str(rw))
+        en = [k[3] for k in kinds("spelling") if "en.js" in (k[1] or "")]
+        check("typos in the English translation file are still found (2)", sum(1 for w in en if re.search(r"curent|asume", w)) == 2, str(en))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))
