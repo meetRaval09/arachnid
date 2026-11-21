@@ -457,7 +457,9 @@ class PyFile:
                                    "`%s` is brought in again here (first at line %d)" % (bound, same[0][0].lineno), provable=True)
                     per_stmt[node].append((al, fid))
                     continue
-                if seen[key][:-1] and not same:
+                if seen[key][:-1] and not same and \
+                        not all(self.exclusive(x[0], node) or self.same_package(x[0], x[1], node, al)
+                                for x in seen[key][:-1]):
                     prev = seen[key][0][0]
                     self.add(node, "import-overwritten", bound, "ambiguity",
                              "`%s` was already brought in at line %d from somewhere else - this one hides it" % (bound, prev.lineno))
@@ -517,6 +519,80 @@ class PyFile:
         while node in self.parents:
             node = self.parents[node]
             yield node
+
+    SAFE_READERS = {"len", "iter", "list", "tuple", "set", "frozenset", "sorted", "enumerate", "any", "all",
+                    "str", "repr", "print", "bool", "dict", "reversed", "min", "max", "sum", "zip", "isinstance"}
+
+    def default_only_read(self, fn, d):
+        """True when the parameter that has this default is only ever read in the function
+        (looped over, tested with `in`, indexed, passed to len/sorted/...), so sharing it is harmless."""
+        a = fn.args
+        pos = a.posonlyargs + a.args
+        name = None
+        if d in a.defaults:
+            name = pos[len(pos) - len(a.defaults) + a.defaults.index(d)].arg
+        else:
+            for arg, kd in zip(a.kwonlyargs, a.kw_defaults):
+                if kd is d:
+                    name = arg.arg
+        if not name:
+            return False
+        for n in ast.walk(fn):
+            if n is fn or not (isinstance(n, ast.Name) and n.id == name):
+                continue
+            if not isinstance(n.ctx, ast.Load):
+                return False                                    # reassigned / deleted
+            p = self.parents.get(n)
+            if isinstance(p, ast.For) and p.iter is n:
+                continue
+            if isinstance(p, ast.comprehension) and p.iter is n:
+                continue
+            if isinstance(p, ast.Compare) and n in p.comparators and \
+                    all(isinstance(o, (ast.In, ast.NotIn)) for o in p.ops):
+                continue
+            if isinstance(p, ast.Subscript) and p.value is n and isinstance(p.ctx, ast.Load):
+                continue
+            if isinstance(p, ast.Call) and n in p.args and isinstance(p.func, ast.Name) and p.func.id in self.SAFE_READERS:
+                continue
+            return False                                        # method call, returned, stored, passed on ...
+        return True
+
+    @staticmethod
+    def same_package(n1, a1, n2, a2):
+        """`import click` and `import click.core` both bind `click` to the same package - nothing is hidden."""
+        return isinstance(n1, ast.Import) and isinstance(n2, ast.Import) and not a1.asname and not a2.asname \
+            and a1.name.split(".")[0] == a2.name.split(".")[0]
+
+    def exclusive(self, a, b):
+        """True when a and b sit in branches that never both run: try body vs except,
+        or if vs else - e.g. "try new import, fall back to old one"."""
+        def chain(n):
+            out = {}
+            child = n
+            for p in self.ancestors(n):
+                out[id(p)] = (p, child)
+                child = p
+            return out
+        ca, cb = chain(a), chain(b)
+        for k, (p, ch_a) in ca.items():
+            if k not in cb:
+                continue
+            ch_b = cb[k][1]
+            if isinstance(p, ast.If):
+                ia, ib = ch_a in p.body, ch_b in p.body
+                if ia != ib:
+                    return True
+            elif isinstance(p, ast.Try):
+                def part(ch):
+                    if ch in p.handlers:
+                        return "except"
+                    if ch in p.body or ch in p.orelse:
+                        return "try"
+                    return "finally"
+                pa, pb = part(ch_a), part(ch_b)
+                if {pa, pb} == {"try", "except"} or (pa == pb == "except" and ch_a is not ch_b):
+                    return True
+        return False
 
     @staticmethod
     def same_target(n1, a1, n2, a2):
@@ -663,6 +739,8 @@ class PyFile:
                 for d in list(n.args.defaults) + [x for x in n.args.kw_defaults if x is not None]:
                     if isinstance(d, (ast.List, ast.Dict, ast.Set)) or \
                             (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id in ("list", "dict", "set")):
+                        if self.default_only_read(n, d):
+                            continue
                         self.add(d, "mutable-default", n.name, "ambiguity", "function `%s` shares one list/dictionary between all calls" % n.name)
             elif isinstance(n, ast.Compare):
                 for op, right in zip(n.ops, n.comparators):

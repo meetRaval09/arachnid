@@ -52,6 +52,10 @@ Each case is taken from a real project; next to it sits a REAL problem of the sa
      server path the scan cannot open), and z-index on `#swagger-ui .download-url-input` called useless although Swagger
      builds that markup (in a flex box) itself. Real counterparts: a misspelled variable of the project's own, and z-index
      without position on the project's own markup.
+ 11. ASML dagster-delta: "try the new import, else the old one" (try/except and if/else fallbacks) called an
+     overwritten import (so was `import click` + `import click.core`), and a list default that is only looped over called a shared mutable default.
+     Real counterparts: two plain imports of the same name, and list/dict defaults that are changed, stored into,
+     returned or handed on.
 """
 import base64
 import json
@@ -532,6 +536,40 @@ def main():
         check("a misspelled variable of the project's own is still found", bool(kinds("css-undefined-var")), str(sorted({e.get('kind') for e in got})))
         check("z-index without position on the project's own markup is still found", bool(kinds("css-zindex-no-position")),
               str(sorted({e.get('kind') for e in got})))
+
+        print("Case: ASML dagster-delta (what was wrongly reported)")
+        dd = tmp / "dagster-delta"
+        dd.mkdir()
+        (dd / "compat.py").write_text(
+            "import sys\nimport click\nimport click.core\n"
+            "try:\n    from dagster._core.definitions.partitions.utils import TimeWindow\n"
+            "except ModuleNotFoundError:\n    from dagster._core.definitions.time_window_partitions import TimeWindow\n"
+            "if sys.version_info >= (3, 11):\n    from typing import NotRequired\n"
+            "else:\n    from typing_extensions import NotRequired\n\n\n"
+            "def find_keys(meta, keys=[\"merge_predicate\", \"merge_operations_config\"]):\n"
+            "    result = {}\n    for key in keys:\n        if key in meta:\n            result[key] = meta[key]\n"
+            "    return result, len(keys)\n\n\n"
+            "print(TimeWindow, NotRequired, click, find_keys({}))\n", encoding="utf-8")
+        got = scan(dd)
+        check("an import fallback (try/except, if/else) or `import x` + `import x.y` is not an overwritten import", not kinds("import-overwritten"),
+              str(kinds("import-overwritten")))
+        check("a list default that is only read is not a shared mutable default", not kinds("mutable-default"),
+              str(kinds("mutable-default")))
+
+        print("Case: the same shapes, but real problems")
+        rp = tmp / "real-py"
+        rp.mkdir()
+        (rp / "bad.py").write_text(
+            "from os.path import join\nfrom posixpath import join\n\n\n"
+            "def add(x, bucket=[]):\n    bucket.append(x)\n    return bucket\n\n\n"
+            "def keep(x, seen={}):\n    seen[x] = 1\n    return len(seen)\n\n\n"
+            "def give(acc=[]):\n    return acc\n\n\n"
+            "print(join, add(1), keep(2), give())\n", encoding="utf-8")
+        got = scan(rp)
+        check("two plain imports of the same name are still found", bool(kinds("import-overwritten")),
+              str(sorted({e.get('kind') for e in got})))
+        check("list/dict defaults that are changed or returned are still found (3)", len(kinds("mutable-default")) == 3,
+              str(kinds("mutable-default")))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\nREGRESSION TEST: %d passed, %d failed" % (len(OK), len(BAD)))
