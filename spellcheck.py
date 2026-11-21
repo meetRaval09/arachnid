@@ -55,7 +55,7 @@ except Exception:
 SKIP_DIRS = {
     "node_modules", ".git", "dist", "build", "__pycache__", ".wrangler", ".vite", ".next",
     ".cache", ".claude", "arachnid", ".venv", "venv", "spider-demo", ".cms-trash", ".cms-tmp",
-    "perf-reports", "vendor",
+    "perf-reports", "vendor", "_libs", "third_party", "third-party",
 }
 SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 MAX_BYTES = 1_500_000
@@ -74,6 +74,12 @@ for _e in "html htm".split():
 for _e in "md txt".split():
     EXT_KIND[_e] = "prose"
 
+# Never offered as a "fix": a rude word in a report (dict -> ...) is worse than no suggestion.
+RUDE = set("""
+dick dicks cunt cunts cock cocks fuck fucks shit shits piss pee poo prick pricks twat twats wank tit tits
+bitch bitches slut sluts whore whores arse ass asses bastard bastards crap damn hell nazi rape porn
+""".split())
+
 # Two everyday words typed as one - the closest single word ("none") would be the wrong fix.
 JOINED = {"noone": "no one", "alot": "a lot", "eachother": "each other", "infact": "in fact",
           "atleast": "at least", "aswell": "as well", "incase": "in case"}
@@ -81,6 +87,8 @@ JOINED = {"noone": "no one", "alot": "a lot", "eachother": "each other", "infact
 # Words that are normal in code but missing from an everyday English dictionary.
 TECH_WORDS = set("""
 kube kubectl kubeconfig kubecontext kwargs buildah podman acr ecr gcr webserver pyenv venv virtualenv checksum checksums dtype dtypes
+struct structs tuple tuples bitfield bitfields dict dicts multi ruleset rulesets genrule genrules matlab opam libelf libdw itanium
+makie charset charsets breakpoint codepage elif endif ifdef ifndef typedef sizeof performant
 chiptune chiptunes synthwave lofi vaporwave 8bit 16bit
 ok okay todo fixme etc eg ie vs aka faq asap info config configs repo repos demo demos docs doc util utils
 init param params args arg func impl obj objs prev idx btn btns nav img imgs src dest tmp temp env dev prod
@@ -573,7 +581,7 @@ class Engine:
             limit = 1 if len(lw) <= 4 else 2
             scored = []
             for c in cands:
-                if not c.isalpha():
+                if not c.isalpha() or c.lower() in RUDE:
                     continue
                 d = osa(lw, c)
                 if d <= limit:
@@ -643,7 +651,7 @@ def collect_files(root):
                         stack.append(e.path)
                     continue
                 low = name.lower()
-                if low in SKIP_FILES or low.startswith(".env") or low.endswith((".min.js", ".min.css", ".map")):
+                if low in SKIP_FILES or low.startswith(".env") or low.endswith((".min.js", ".min.css", ".map", ".pack.js", ".bundle.js")):
                     continue
                 ext = low.rsplit(".", 1)[-1] if "." in low else ""
                 if ext not in EXT_KIND:
@@ -678,6 +686,12 @@ def scan_file(path, root):
             text = fh.read()
     except (UnicodeDecodeError, OSError):
         return None
+    lines_ = text.split("\n")
+    if kind == "js" and (max((len(x) for x in lines_), default=0) > 2000 or len(text) / max(1, len(lines_)) > 200):
+        return None                                     # minified / bundled library - not written by a person
+    if ext == "txt" and len(lines_) >= 50 and \
+            sum(1 for x in lines_ if re.fullmatch(r"\s*[A-Za-z][\w'-]*\s*", x)) >= 0.9 * sum(1 for x in lines_ if x.strip()):
+        return None                                     # a word list (one word per line), not sentences
     regs = get_regions(text, kind)
     tokens = []
     seen = set()

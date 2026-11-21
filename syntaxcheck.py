@@ -392,10 +392,11 @@ def node_check(code, node, ext="js"):
     return [(line, 1, msg or "syntax error")]
 
 
-TEMPLATE_TAGS = re.compile(r"\{%|\{#|<%[=\-_#]?\s|\{\{[#/^>!]")      # Jinja/Django/Liquid, EJS/ERB, Handlebars/Mustache blocks
+TEMPLATE_TAGS = re.compile(r"\{%|\{#|<%[=\-_#]?\s|\{\{[#/^>!]"      # Jinja/Django/Liquid, EJS/ERB, Handlebars/Mustache blocks
+                           r"|\{\{\s*(?:if|insert|end|ifdef|isdef|ispage|fill|for)\b")   # Franklin.jl: {{if hasmath}} {{insert head.html}}
 PAGE_START = re.compile(r"<!doctype|<html[\s>]|<body[\s>]", re.I)
 # Qute (Quarkus), and any file kept in a templates folder: {#for d in data}, {/for}, href="{contextRoot}favicon.ico"
-TEMPLATE_PATH = re.compile(r"(^|/)[^/]*templates?/|\.qute\.", re.I)
+TEMPLATE_PATH = re.compile(r"(^|/)[^/]*templates?/|\.qute\.|(^|/)_(layouts?|includes|partials)/", re.I)   # Jekyll, Franklin, Hugo-style pieces
 QUTE_BLOCK = re.compile(r"\{[#/][A-Za-z]|\{![^}]*!\}")
 QUTE_ATTR = re.compile(r"""=\s*["']\{[A-Za-z_][\w.:]*\}""")
 
@@ -499,7 +500,8 @@ def check_md(text):
         if m:
             rest = ln.strip()[len(m.group(1)):]
             if fence is None:
-                if not (m.group(1)[0] == "`" and "`" in rest):     # "```` ```x``` ````" is inline code, not a fence
+                if not (m.group(1)[0] == "`" and "`" in rest) and \
+                        not (m.group(1)[0] == "~" and rest.strip().endswith("~~~")):   # Franklin.jl: ~~~<h4>..</h4>~~~
                     fence = (m.group(1)[0], len(m.group(1)), i)
             elif m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not rest.strip():
                 fence = None

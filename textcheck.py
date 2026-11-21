@@ -115,7 +115,8 @@ rule("article-a-an", r"\ba\s+([aeiou][a-z]+)\b", "low", False, None,
      exclude=lambda m: m.group(1).startswith(("u", "eu", "one", "once", "ewe", "ou", "eve", "ear")) or m.group(1) in ("a",))
 rule("article-an-a", r"\ban\s+([bcdfgjklmnpqrstvwxyz][a-z]+)\b", "low", False, None,
      lambda m: "'an %s' - before a consonant sound it is 'a %s'." % (m.group(1), m.group(1)), flags=0,
-     exclude=lambda m: m.group(1).startswith(("hour", "honest", "honor", "honour", "heir", "herb")))
+     exclude=lambda m: m.group(1).startswith(("hour", "honest", "honor", "honour", "heir", "herb")) or (
+         m.group(1)[0] in "fhlmnrsx" and not re.search(r"[aeiouy]", m.group(1))))   # an XML, an SQL, an HTML: said letter by letter
 rule("space-before-punct", r"(?<=[A-Za-z])\s+[,;](?=\s)|(?<=[A-Za-z])\s+\.(?=\s|$)", "low", False, None,
      lambda m: "A space before '%s' - punctuation sticks to the word before it." % m.group(0).strip())
 rule("double-punct", r"(?<![.\w])\.\.(?![./\\])|,,|;;", "low", False, None, lambda m: "'%s' doubled punctuation - one is a typo." % m.group(0))
@@ -163,7 +164,7 @@ def date_problems(text):
 # turning files into paragraphs of plain prose
 # ----------------------------------------------------------------------------------------------------------------
 URL = re.compile(r"https?://\S+|www\.\S+|\b[\w.+-]+@[\w-]+\.[\w.]+\b")
-FENCE = re.compile(r"^\s*(?:`{3,}(?!.*`)|~{3,})")               # a ``` line holding more backticks is inline code
+FENCE = re.compile(r"^\s*(?:`{3,}(?!.*`)|~{3,}(?!.*\S.*~~~\s*$))")   # a ``` line holding more backticks is inline code; ~~~<b>x</b>~~~ is Franklin raw HTML
 LIST_MARK = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 
 
@@ -188,6 +189,7 @@ def paragraphs_doc(text, ext):
     lines = text.split("\n")
     paras, cur = [], []
     in_fence, prev_blank = False, True
+    in_pre = False
     start = 0
     if ext in ("md", "mdx") and lines and lines[0].strip() == "---":
         for k in range(1, min(len(lines), 60)):
@@ -202,6 +204,10 @@ def paragraphs_doc(text, ext):
     for n in range(start, len(lines)):
         raw = lines[n].rstrip("\r")
         if ext in ("md", "mdx"):
+            if in_pre or re.match(r"^\s*<pre[\s>]", raw, re.I):
+                in_pre = "</pre>" not in raw.lower()
+                flush()
+                continue                                   # <pre> ... </pre>: code, not sentences
             if FENCE.match(raw):
                 in_fence = not in_fence
                 flush()
@@ -299,7 +305,15 @@ def looks_english(texts):
         return True
 
 
+def is_word_list(text):
+    """A file of one word per line (nouns.txt, adjectives.txt) is data, not sentences."""
+    lines = [x for x in text.split("\n") if x.strip()]
+    return len(lines) >= 50 and sum(1 for x in lines if re.fullmatch(r"\s*[A-Za-z][\w'-]*\s*", x)) >= 0.9 * len(lines)
+
+
 def analyse_file(rel, text, ext):
+    if ext == "txt" and is_word_list(text):
+        return None
     page = ext in PAGE_EXT
     paras = paragraphs_page(text) if page else paragraphs_doc(text, ext)
     if not looks_english([t for p in paras for _, t in p]):
@@ -341,8 +355,14 @@ def analyse_file(rel, text, ext):
             m = MID_END.search(joined)
             add("ends-mid-thought", "medium", m.start(), len(joined), joined[-50:],
                 "This text stops on '%s' - a word that always needs something after it. The sentence is unfinished." % m.group(1))
+        raw_para = [orig_lines[ln - 1] if ln - 1 < len(orig_lines) else "" for ln, _ in para]
+        if not page and raw_para and LIST_MARK.match(raw_para[0]):
+            continue                        # a numbered/bullet step: walkthroughs repeat their steps on purpose
+        codes = tuple(re.findall(r"`[^`]*`", " ".join(raw_para)))
         for sent in re.split(r"(?<=[.!?])\s+", joined):
             norm = re.sub(r"\W+", " ", sent.lower()).strip()
+            if "code" in norm.split():
+                norm += " " + repr(codes)   # `XsdToStruct` and `XsdToStruct.jl` are different code - not the same sentence
             if len(norm.split()) >= 6:
                 seen_sent[norm] += 1
                 if seen_sent[norm] == 2:

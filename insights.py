@@ -228,7 +228,7 @@ class Project:
                 if x in CODE_EXT:
                     self.langs[x] += 1
                 if (x in TEXT_EXT or e.name in ("Dockerfile", "Makefile", "go.mod", "Gemfile", "Pipfile")) and size <= MAX_TEXT and e.name not in SKIP_TEXT_NAMES \
-                        and not e.name.endswith((".min.js", ".min.css", ".map")):
+                        and not e.name.endswith((".min.js", ".min.css", ".map", ".pack.js", ".bundle.js")):
                     try:
                         self.texts[rel] = e.read_text(encoding="utf-8")
                     except (UnicodeDecodeError, OSError):

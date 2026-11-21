@@ -2536,6 +2536,8 @@ def _md_parts(text):
         fm = re.match(r"^ {0,3}(`{3,}|~{3,})", ln)
         if fm and fm.group(1)[0] == "`" and "`" in ln.strip()[len(fm.group(1)):]:
             fm = None                                    # not a fence: a backtick fence's line holds no other backtick
+        if fm and fm.group(1)[0] == "~" and len(ln.strip()) > 6 and ln.strip().endswith("~~~"):
+            fm = None                                    # Franklin.jl raw HTML on one line: ~~~<h4>Title</h4>~~~
         if fence:
             out.append("")
             if fm and fm.group(1)[0] == fence[0] and len(fm.group(1)) >= len(fence) and not ln.strip()[len(fm.group(1)):].strip():
