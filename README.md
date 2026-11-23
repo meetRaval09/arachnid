@@ -13,6 +13,10 @@
 <p align="center">It never changes how your product looks or behaves, not even by one pixel. Anything it cannot prove is held back and
 reported to you, and anything that changes your code waits for a person to approve it.</p>
 
+<p align="center">
+  <img src="docs/arachnid-demo.gif" alt="Arachnid scanning a small project, listing what it found, then fixing only the safe typo" width="760">
+</p>
+
 ## The proof, in numbers
 
 Every number below comes from a test you can run yourself (the command is in the last column). The brutal tests run
